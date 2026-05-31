@@ -41,14 +41,7 @@ const NOTIFICATION_MODE = "telegram";
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("✂️ Barber Tools")
-    .addItem("🔄 Sync Now", "syncCalendarToSheets")
-    .addItem("⚡ Setup Incremental Sync (5 min)", "setupIncrementalSync")
-    .addItem("🗑️ Stop Incremental Sync", "removeIncrementalSync")
-    .addSeparator()
-    .addItem("🛠️ Setup All Triggers", "setupTriggers")
-    .addItem("📲 Setup Sync on Sheet Open", "setupOnOpenSync")
-    .addSeparator()
-    .addItem("✅ Validate Setup", "validateSetup")
+    .addItem("🔄 Sync Now", "syncCalendarIncremental_")
     .addToUi();
 }
 
@@ -155,9 +148,11 @@ function syncCalendarToSheets(showNotification = true) {
 
   const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
   updateUpcomingToNotPaid_(ctx.appointmentsSheet);
-  updateConsecutivePaidCounts_(ctx);
-  updateNoShowLateCounts_(ctx);
-  updateClientStats_(ctx);
+  const apptLastRow = ctx.appointmentsSheet.getLastRow();
+  const apptData = apptLastRow >= 2 ? ctx.appointmentsSheet.getRange(2, 1, apptLastRow - 1, 13).getValues() : [];
+  updateConsecutivePaidCounts_(ctx, apptData);
+  updateNoShowLateCounts_(ctx, apptData);
+  updateClientStats_(ctx, apptData);
   sortAndHideAppointments_(ctx.appointmentsSheet);
 
   // Only show alert and send notification if it's a manual sync (showNotification = true)
@@ -181,9 +176,11 @@ function syncThisYear(showNotification = true) {
   const events = ctx.calendar.getEvents(startDate, endDate);
   const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
   updateUpcomingToNotPaid_(ctx.appointmentsSheet);
-  updateConsecutivePaidCounts_(ctx);
-  updateNoShowLateCounts_(ctx);
-  updateClientStats_(ctx);
+  const apptLastRowY = ctx.appointmentsSheet.getLastRow();
+  const apptDataY = apptLastRowY >= 2 ? ctx.appointmentsSheet.getRange(2, 1, apptLastRowY - 1, 13).getValues() : [];
+  updateConsecutivePaidCounts_(ctx, apptDataY);
+  updateNoShowLateCounts_(ctx, apptDataY);
+  updateClientStats_(ctx, apptDataY);
   sortAndHideAppointments_(ctx.appointmentsSheet);
 
   // Only show alert and send notification if it's a manual sync (showNotification = true)
@@ -228,7 +225,7 @@ function upsertEvents_(events, ctx) {
     const parsed = parseEventTitle_(event.getTitle());
     if (!parsed) continue;
 
-    const existingRow = ctx.apptIndex.get(eventId);
+    const existing = ctx.apptIndex.get(eventId);
     const clientId = getOrCreateClientId_(ctx.clientsSheet, ctx.clientsIndex, parsed.clientName);
     const hasCredits = hasActiveCredits_(ctx.subsIndex, parsed.clientName, clientId);
 
@@ -255,7 +252,7 @@ function upsertEvents_(events, ctx) {
     const isFuture = new Date(dateCell) >= today;
     const initialStatus = (payment === "Subscription") ? "Paid" : (isFuture ? "Upcoming" : "Not Paid");
 
-    if (!existingRow) {
+    if (!existing) {
       // --- NEW APPOINTMENT ---
       newRowsABC.push([dateCell, timeCell, ""]);
       newRowsDToM.push([
@@ -274,10 +271,10 @@ function upsertEvents_(events, ctx) {
 
     } else {
       // --- EXISTING APPOINTMENT ---
-      if (existingRow === -1) continue;
+      if (existing === -1) continue;
 
-      const rowRange = ctx.appointmentsSheet.getRange(existingRow, 1, 1, 13);
-      const rowVals = rowRange.getValues()[0];
+      const existingRow = existing.row;
+      const rowVals = existing.data;
 
       const oldDateVal = new Date(rowVals[0]);
       const oldStatus = rowVals[5];
@@ -325,20 +322,20 @@ function upsertEvents_(events, ctx) {
   }
 
   // Mark cancelled appointments (calendar events deleted)
-  ctx.apptIndex.forEach((rowIdx, eId) => {
-    if (rowIdx === -1) return;
+  ctx.apptIndex.forEach((entry, eId) => {
+    if (entry === -1) return;
     if (validEventIds.has(eId)) return;
 
-    const dateVal = ctx.appointmentsSheet.getRange(rowIdx, 1).getValue();
+    const rowIdx = entry.row;
+    const dateVal = entry.data[0]; // col A
     if (!dateVal) return;
     const rowDate = new Date(dateVal);
     if (rowDate < ctx.startDate || rowDate > ctx.endDate) return;
 
-    const statusRange = ctx.appointmentsSheet.getRange(rowIdx, 6);
-    const currentStatus = statusRange.getValue();
+    const currentStatus = String(entry.data[5] || ""); // col F
     if (currentStatus === "Paid" || currentStatus === "No Show" || currentStatus === "Cancelled") return;
 
-    statusRange.setValue("Cancelled");
+    ctx.appointmentsSheet.getRange(rowIdx, 6).setValue("Cancelled");
     ctx.appointmentsSheet.getRange(rowIdx, 8).setValue(false);
     cancelledCount++;
   });
@@ -378,50 +375,44 @@ function updateUpcomingToNotPaid_(sheet) {
 /**
  * Update Consecutive Paid counts in Clients sheet (col O)
  */
-function updateConsecutivePaidCounts_(ctx) {
+function updateConsecutivePaidCounts_(ctx, apptData) {
   const clientsSheet = ctx.clientsSheet;
   const apptSheet = ctx.appointmentsSheet;
   const lastRow = clientsSheet.getLastRow();
   if (lastRow < 2) return;
 
   const clientData = clientsSheet.getRange(2, 1, lastRow - 1, 16).getValues();
-  const apptData = apptSheet.getRange(2, 1, apptSheet.getLastRow() - 1, 13).getValues();
+  if (!apptData) {
+    const apptLastRow = apptSheet.getLastRow();
+    apptData = apptLastRow >= 2 ? apptSheet.getRange(2, 1, apptLastRow - 1, 13).getValues() : [];
+  }
 
-  for (let i = 0; i < clientData.length; i++) {
+  const n = clientData.length;
+  const oVals = new Array(n);
+
+  for (let i = 0; i < n; i++) {
     const clientId = clientData[i][11]; // col L
-    if (!clientId) continue;
+    if (!clientId) { oVals[i] = [0]; continue; }
 
-    // Get all appointments for this client, sorted by date desc
     const clientAppts = [];
     for (const row of apptData) {
-      if (String(row[10]) === String(clientId)) { // col K = ClientID
-        clientAppts.push({
-          date: row[0],
-          status: row[5],
-          payment: row[4],
-          late: row[7]  // col H = Late checkbox
-        });
+      if (String(row[10]) === String(clientId)) {
+        clientAppts.push({ date: row[0], status: row[5], payment: row[4], late: row[7] });
       }
     }
-
     clientAppts.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // Count consecutive paid from most recent
-    // RESET if: No Show, Late checkbox checked, or unpaid
     let consecutivePaid = 0;
     for (const appt of clientAppts) {
-      // Stop counter if No Show or marked Late
-      if (appt.status === "No Show" || appt.late === true) {
-        break;
-      }
-      
+      if (appt.status === "No Show" || appt.late === true) break;
       const isPaid = appt.payment === "Cash" || appt.payment === "Tikkie" || appt.payment === "Subscription" || appt.payment === "Free" || appt.status.startsWith("Free");
       if (isPaid) consecutivePaid++;
       else break;
     }
-
-    clientsSheet.getRange(i + 2, 15).setValue(consecutivePaid); // col O
+    oVals[i] = [consecutivePaid];
   }
+
+  clientsSheet.getRange(2, 15, n, 1).setValues(oVals); // col O
 }
 
 /**
@@ -432,19 +423,17 @@ function updateConsecutivePaidCounts_(ctx) {
  * "Paid visit" = payment is Cash/Tikkie/Subscription/Free OR status starts with "Free".
  * TotalSpent counts only Cash/Tikkie/Subscription (Free appointments are €0 by definition).
  */
-function updateClientStats_(ctx) {
+function updateClientStats_(ctx, apptData) {
   const clientsSheet = ctx.clientsSheet;
   const apptSheet = ctx.appointmentsSheet;
   const clientLastRow = clientsSheet.getLastRow();
-  const apptLastRow = apptSheet.getLastRow();
   if (clientLastRow < 2) return;
 
-  // cols A–L: index 0–11. Need: L(11)=ClientID
   const clientData = clientsSheet.getRange(2, 1, clientLastRow - 1, 12).getValues();
-  // cols A–K: index 0–10. Need: A(0)=Date, D(3)=Price, E(4)=Payment, F(5)=Status, G(6)=Tips, K(10)=ClientID
-  const apptData = apptLastRow >= 2
-    ? apptSheet.getRange(2, 1, apptLastRow - 1, 11).getValues()
-    : [];
+  if (!apptData) {
+    const apptLastRow = apptSheet.getLastRow();
+    apptData = apptLastRow >= 2 ? apptSheet.getRange(2, 1, apptLastRow - 1, 11).getValues() : [];
+  }
 
   const lastVisits = [];   // col C
   const ijkValues = [];    // cols I, J, K contiguous
@@ -502,38 +491,41 @@ function updateClientStats_(ctx) {
  * Replaces sheet formulas — counts from appointment history over last 12 months.
  * Call this after every sync instead of maintaining COUNTIFS formulas in the sheet.
  */
-function updateNoShowLateCounts_(ctx) {
+function updateNoShowLateCounts_(ctx, apptData) {
   const clientsSheet = ctx.clientsSheet;
   const apptSheet = ctx.appointmentsSheet;
   const clientLastRow = clientsSheet.getLastRow();
-  const apptLastRow = apptSheet.getLastRow();
-  if (clientLastRow < 2 || apptLastRow < 2) return;
+  if (clientLastRow < 2) return;
+
+  if (!apptData) {
+    const apptLastRow = apptSheet.getLastRow();
+    if (apptLastRow < 2) return;
+    apptData = apptSheet.getRange(2, 1, apptLastRow - 1, 11).getValues();
+  }
 
   const cutoff = new Date();
-  cutoff.setFullYear(cutoff.getFullYear() - 1); // 12 months ago
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
 
-  // Read clients: cols A–L (indices 0–11), need col L (index 11) = ClientID
   const clientData = clientsSheet.getRange(2, 1, clientLastRow - 1, 12).getValues();
-  // Read appts: cols A–K (indices 0–10), need col K (index 10) = ClientID
-  // A=Date, F=Status(5), H=Late(7), K=ClientID(10)
-  const apptData = apptSheet.getRange(2, 1, apptLastRow - 1, 11).getValues();
+  const n = clientData.length;
+  const fgVals = new Array(n);
 
-  for (let i = 0; i < clientData.length; i++) {
+  for (let i = 0; i < n; i++) {
     const clientId = clientData[i][11]; // col L
-    if (!clientId) continue;
+    if (!clientId) { fgVals[i] = [0, 0]; continue; }
 
     let noShows = 0, lates = 0;
     for (const row of apptData) {
-      if (String(row[10]) !== String(clientId)) continue; // col K (index 10)
+      if (String(row[10]) !== String(clientId)) continue;
       const dateVal = row[0];
       if (!dateVal || new Date(dateVal) < cutoff) continue;
-      if (row[5] === "No Show") noShows++;      // col F (index 5) = Status
-      if (row[7] === true) lates++;             // col H (index 7) = Late checkbox
+      if (row[5] === "No Show") noShows++;
+      if (row[7] === true) lates++;
     }
-
-    clientsSheet.getRange(i + 2, 6).setValue(noShows); // col F
-    clientsSheet.getRange(i + 2, 7).setValue(lates);   // col G
+    fgVals[i] = [noShows, lates];
   }
+
+  clientsSheet.getRange(2, 6, n, 2).setValues(fgVals); // cols F–G
 }
 
 function sortAndHideAppointments_(sheet) {
@@ -1203,9 +1195,12 @@ function hasActiveCredits_(idx, name, id) {
 
 function loadAppointmentEventIdIndex_(sheet) {
   const map = new Map();
-  const ids = sheet.getRange(1, 12, sheet.getLastRow(), 1).getValues();
-  for (let i = 1; i < ids.length; i++) {
-    if (ids[i][0]) map.set(String(ids[i][0]), i + 1);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return map;
+  const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  for (let i = 0; i < data.length; i++) {
+    const eventId = data[i][11]; // col L
+    if (eventId) map.set(String(eventId), { row: i + 2, data: data[i] });
   }
   return map;
 }
@@ -1504,12 +1499,12 @@ function syncCalendarIncremental_() {
 
       // Deleted event
       if (item.status === "cancelled") {
-        const rowIdx = ctx.apptIndex.get(eventId);
-        if (!rowIdx || rowIdx === -1) continue;
-        const statusCell = apptSheet.getRange(rowIdx, 6);
-        const s = statusCell.getValue();
+        const entry = ctx.apptIndex.get(eventId);
+        if (!entry || entry === -1) continue;
+        const rowIdx = entry.row;
+        const s = String(entry.data[5] || ""); // col F = Status
         if (s !== "Paid" && s !== "No Show" && s !== "Cancelled") {
-          statusCell.setValue("Cancelled");
+          apptSheet.getRange(rowIdx, 6).setValue("Cancelled");
           apptSheet.getRange(rowIdx, 8).setValue(false);
           hasChanges = true;
         }
@@ -1539,9 +1534,9 @@ function syncCalendarIncremental_() {
 
       const isFuture     = new Date(dateCell) >= today;
       const initialStatus = payment === "Subscription" ? "Paid" : (isFuture ? "Upcoming" : "Not Paid");
-      const existingRow  = ctx.apptIndex.get(eventId);
+      const iExisting = ctx.apptIndex.get(eventId);
 
-      if (!existingRow) {
+      if (!iExisting) {
         // New appointment
         newRowsABC.push([dateCell, timeCell, ""]);
         newRowsDToM.push([price, payment, initialStatus, "", false,
@@ -1551,15 +1546,16 @@ function syncCalendarIncremental_() {
         newEventIds.add(eventId);
         hasChanges = true;
 
-      } else if (existingRow !== -1) {
+      } else if (iExisting !== -1) {
         // Updated appointment — refresh time / notes / service
-        const rowVals   = apptSheet.getRange(existingRow, 1, 1, 13).getValues()[0];
-        const oldDate   = new Date(rowVals[0]);
-        const oldTime   = rowVals[1] ? hm_(new Date(rowVals[1]), tz) : "";
-        const changed   = ymd !== ymd_(oldDate, tz) ||
-                          hm  !== oldTime ||
-                          (item.description || "") !== String(rowVals[8] || "") ||
-                          serviceToWrite !== String(rowVals[9] || "");
+        const existingRow = iExisting.row;
+        const rowVals     = iExisting.data;
+        const oldDate     = new Date(rowVals[0]);
+        const oldTime     = rowVals[1] ? hm_(new Date(rowVals[1]), tz) : "";
+        const changed     = ymd !== ymd_(oldDate, tz) ||
+                            hm  !== oldTime ||
+                            (item.description || "") !== String(rowVals[8] || "") ||
+                            serviceToWrite !== String(rowVals[9] || "");
         if (changed) {
           const formula = `=XLOOKUP(K${existingRow}; Clients!L:L; Clients!A:A; M${existingRow})`;
           apptSheet.getRange(existingRow, 1, 1, 3).setValues([[dateCell, timeCell, formula]]);
@@ -1582,9 +1578,11 @@ function syncCalendarIncremental_() {
     }
 
     updateUpcomingToNotPaid_(apptSheet);
-    updateConsecutivePaidCounts_(ctx);
-    updateNoShowLateCounts_(ctx);
-    updateClientStats_(ctx);
+    const iLastRow = apptSheet.getLastRow();
+    const iApptData = iLastRow >= 2 ? apptSheet.getRange(2, 1, iLastRow - 1, 13).getValues() : [];
+    updateConsecutivePaidCounts_(ctx, iApptData);
+    updateNoShowLateCounts_(ctx, iApptData);
+    updateClientStats_(ctx, iApptData);
     sortAndHideAppointments_(apptSheet);
 
     if (newToken) props.setProperty("CALENDAR_SYNC_TOKEN", newToken);
