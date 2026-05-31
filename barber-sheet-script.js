@@ -600,8 +600,9 @@ function sendSyncNotification_(ctx, newEventIds) {
     const priceStr = payment === "Subscription" ? "Sub" : "\u20ac" + price;
 
     const { badge, doNotCut } = getReliabilityInfo_(name, clientMap);
-    const vipBadge            = isVIP_(name, clientsSheet)           ? " \u2b50" : "";
-    const consecutivePaid     = getConsecutivePaidCount_(name, clientsSheet);
+    const clientInfo          = clientMap.get(nameCase_(name)) || {};
+    const vipBadge            = clientInfo.vip            ? " \u2b50" : "";
+    const consecutivePaid     = clientInfo.consecutivePaid || 0;
     const loyaltyLabel        = consecutivePaid >= 5                 ? " \u2705 ELIGIBLE FOR FREE" : "";
     const lastAppt            = getClientLastAppointment_(name, apptSheet);
     const nameDisplay         = doNotCut ? "<u>" + name + "</u>" : name;
@@ -827,8 +828,6 @@ function getClientLastAppointment_(clientName, apptSheet) {
     label = `Paid (€${last.price})`;
   } else if (last.status.startsWith("Free")) {
     label = last.status; // "Free - Family" etc
-  } else if (last.status === "Late") {
-    label = "Late";
   }
 
   return {
@@ -934,12 +933,9 @@ function sendTelegramNotification_() {
       const priceStr = appt.payment === "Subscription" ? "Sub" : `€${appt.price}`;
       const nameDisplay = doNotCut ? `<u>${appt.name}</u>` : appt.name;
       
-      // VIP badge
-      const isVip = isVIP_(appt.name, clientsSheet);
-      const vipBadge = isVip ? " ⭐" : "";
-      
-      // Loyalty tier
-      const consecutivePaid = getConsecutivePaidCount_(appt.name, clientsSheet);
+      const clientInfo      = clientMap.get(nameCase_(appt.name)) || {};
+      const vipBadge        = clientInfo.vip            ? " ⭐" : "";
+      const consecutivePaid = clientInfo.consecutivePaid || 0;
       const loyaltyLabel = consecutivePaid >= 5 ? " ✅ ELIGIBLE FOR FREE" : "";
 
       msg += `<b>${timeStr} — ${nameDisplay}${vipBadge}</b>\n`;
@@ -1026,7 +1022,9 @@ function loadClientNotificationMap_(sheet) {
       noShow: Number(data[i][5]) || 0,
       late: Number(data[i][6]) || 0,
       notes: data[i][4] || "",
-      doNotCut: data[i][13] === true
+      doNotCut: data[i][13] === true,
+      vip: data[i][15] === true,
+      consecutivePaid: Number(data[i][14]) || 0
     });
   }
   return map;
