@@ -108,16 +108,30 @@ function processSheetChanges(e) {
     // B. Status changed (col F)
     if (range.getColumn() === 6) {
       const statusVal = range.getValue();
-      
+
       // Clear Late checkbox ONLY for No Show / Cancelled
       if (statusVal === "No Show" || statusVal === "Cancelled") {
         sheet.getRange(row, 8).setValue(false);
       }
-      
+
       // If setting to Free, ensure Price = 0 (but keep Late checkbox)
       if (statusVal.startsWith("Free")) {
         sheet.getRange(row, 4).setValue(0);
       }
+    }
+
+    // C. Recalculate all client stats immediately when any stat-affecting column changes.
+    // Covers: D=Price, E=Payment, F=Status, G=Tips, H=Late, K=ClientID
+    // Runs after A and B so their sheet writes are already committed before we re-read.
+    const col = range.getColumn();
+    if (col === 4 || col === 5 || col === 6 || col === 7 || col === 8 || col === 11) {
+      const minCtx = {
+        appointmentsSheet: sheet,
+        clientsSheet: sheet.getParent().getSheetByName(CLIENTS_SHEET)
+      };
+      updateClientStats_(minCtx);
+      updateNoShowLateCounts_(minCtx);
+      updateConsecutivePaidCounts_(minCtx);
     }
   }
 
@@ -143,6 +157,7 @@ function syncCalendarToSheets(showNotification = true) {
   updateUpcomingToNotPaid_(ctx.appointmentsSheet);
   updateConsecutivePaidCounts_(ctx);
   updateNoShowLateCounts_(ctx);
+  updateClientStats_(ctx);
   sortAndHideAppointments_(ctx.appointmentsSheet);
 
   // Only show alert and send notification if it's a manual sync (showNotification = true)
@@ -168,6 +183,7 @@ function syncThisYear(showNotification = true) {
   updateUpcomingToNotPaid_(ctx.appointmentsSheet);
   updateConsecutivePaidCounts_(ctx);
   updateNoShowLateCounts_(ctx);
+  updateClientStats_(ctx);
   sortAndHideAppointments_(ctx.appointmentsSheet);
 
   // Only show alert and send notification if it's a manual sync (showNotification = true)
@@ -406,6 +422,79 @@ function updateConsecutivePaidCounts_(ctx) {
 
     clientsSheet.getRange(i + 2, 15).setValue(consecutivePaid); // col O
   }
+}
+
+/**
+ * Update TotalVisits (I), TotalTips (J), TotalSpent (K), LastVisit (C), FirstVisit (M)
+ * in Clients sheet. Replaces spreadsheet formulas so data stays correct after
+ * historical appointment rows are deleted.
+ *
+ * "Paid visit" = payment is Cash/Tikkie/Subscription/Free OR status starts with "Free".
+ * TotalSpent counts only Cash/Tikkie/Subscription (Free appointments are €0 by definition).
+ */
+function updateClientStats_(ctx) {
+  const clientsSheet = ctx.clientsSheet;
+  const apptSheet = ctx.appointmentsSheet;
+  const clientLastRow = clientsSheet.getLastRow();
+  const apptLastRow = apptSheet.getLastRow();
+  if (clientLastRow < 2) return;
+
+  // cols A–L: index 0–11. Need: L(11)=ClientID
+  const clientData = clientsSheet.getRange(2, 1, clientLastRow - 1, 12).getValues();
+  // cols A–K: index 0–10. Need: A(0)=Date, D(3)=Price, E(4)=Payment, F(5)=Status, G(6)=Tips, K(10)=ClientID
+  const apptData = apptLastRow >= 2
+    ? apptSheet.getRange(2, 1, apptLastRow - 1, 11).getValues()
+    : [];
+
+  const lastVisits = [];   // col C
+  const ijkValues = [];    // cols I, J, K contiguous
+  const firstVisits = [];  // col M
+
+  for (let i = 0; i < clientData.length; i++) {
+    const clientId = clientData[i][11];
+    if (!clientId) {
+      lastVisits.push([""]);
+      ijkValues.push([0, 0, 0]);
+      firstVisits.push([""]);
+      continue;
+    }
+
+    let totalVisits = 0, totalTips = 0, totalSpent = 0;
+    let firstVisit = null, lastVisit = null;
+
+    for (const row of apptData) {
+      if (String(row[10]) !== String(clientId)) continue;
+
+      const payment = String(row[4] || "");
+      const status  = String(row[5] || "");
+      const isPaidVisit = payment === "Cash" || payment === "Tikkie" ||
+                          payment === "Subscription" || payment === "Free" ||
+                          status.startsWith("Free");
+      if (!isPaidVisit) continue;
+
+      const dateVal = row[0];
+      if (dateVal) {
+        const d = new Date(dateVal);
+        if (!firstVisit || d < firstVisit) firstVisit = d;
+        if (!lastVisit  || d > lastVisit)  lastVisit  = d;
+      }
+
+      totalVisits++;
+      totalTips += Number(row[6]) || 0;
+      if (payment === "Cash" || payment === "Tikkie" || payment === "Subscription") {
+        totalSpent += Number(row[3]) || 0;
+      }
+    }
+
+    lastVisits.push([lastVisit  || ""]);
+    ijkValues.push([totalVisits, totalTips, totalSpent]);
+    firstVisits.push([firstVisit || ""]);
+  }
+
+  const n = clientData.length;
+  clientsSheet.getRange(2, 3,  n, 1).setValues(lastVisits);  // col C — LastVisit
+  clientsSheet.getRange(2, 9,  n, 3).setValues(ijkValues);   // cols I, J, K
+  clientsSheet.getRange(2, 13, n, 1).setValues(firstVisits); // col M — FirstVisit
 }
 
 /**
@@ -1495,6 +1584,7 @@ function syncCalendarIncremental_() {
     updateUpcomingToNotPaid_(apptSheet);
     updateConsecutivePaidCounts_(ctx);
     updateNoShowLateCounts_(ctx);
+    updateClientStats_(ctx);
     sortAndHideAppointments_(apptSheet);
 
     if (newToken) props.setProperty("CALENDAR_SYNC_TOKEN", newToken);
