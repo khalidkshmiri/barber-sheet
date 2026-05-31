@@ -1,19 +1,28 @@
 /***************
  * CONFIGURATION
+ * Change these values to adapt the script to your setup.
  ***************/
+
+// Name of the Google Calendar to sync from. Must match exactly.
 const CALENDAR_NAME = "Barber Appointments";
+
+// Names of the four required sheets inside the spreadsheet.
+// Change these if your sheet tabs have different names.
 const APPOINTMENTS_SHEET = "Appointments";
 const CLIENTS_SHEET = "Clients";
 const SERVICES_SHEET = "Services";
 const SUBSCRIPTIONS_SHEET = "Subscriptions";
 
+// How many days back/forward to include in a full sync.
 const DAYS_BACK = 14;
 const DAYS_FORWARD = 14;
+
+// Appointments older than this many days are hidden (not deleted).
 const HIDE_OLDER_THAN_DAYS = 30;
 
-// ─── NOTIFICATION MODE ───────────────────────────────────────────────
+// Notification channel. Currently only "telegram" is supported.
+// Requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Script Properties.
 const NOTIFICATION_MODE = "telegram";
-// ─────────────────────────────────────────────────────────────────────
 
 // Appointments columns (1-based):
 // A=1 Date  B=2 Time  C=3 Name(formula)  D=4 Price  E=5 Payment
@@ -35,6 +44,11 @@ function onOpen() {
     .addItem("🔄 Sync Now", "syncCalendarToSheets")
     .addItem("⚡ Setup Incremental Sync (5 min)", "setupIncrementalSync")
     .addItem("🗑️ Stop Incremental Sync", "removeIncrementalSync")
+    .addSeparator()
+    .addItem("🛠️ Setup All Triggers", "setupTriggers")
+    .addItem("📲 Setup Sync on Sheet Open", "setupOnOpenSync")
+    .addSeparator()
+    .addItem("✅ Validate Setup", "validateSetup")
     .addToUi();
 }
 
@@ -52,7 +66,8 @@ function processSheetChanges(e) {
     if (range.getValue() === true) {
       range.setValue(false);
       SpreadsheetApp.flush();
-      syncCalendarToSheets();
+      syncCalendarIncremental_();
+      sendTelegramSimple_("✂️ Manual sync triggered from dashboard button.");
     }
     return;
   }
@@ -69,7 +84,7 @@ function processSheetChanges(e) {
 
       // Never override a manually set No Show or Cancelled
       if (currentStatus !== "No Show" && currentStatus !== "Cancelled") {
-        if (paymentVal === "Cash" || paymentVal === "Tikkie" || paymentVal === "Subscription") {
+        if (paymentVal === "Cash" || paymentVal === "Tikkie" || paymentVal === "Subscription" || paymentVal === "Free") {
           statusRange.setValue("Paid");
         } else if (paymentVal === "" && currentStatus === "Paid") {
           const dateVal = sheet.getRange(row, 1).getValue();
@@ -83,7 +98,7 @@ function processSheetChanges(e) {
       const currentPrice = priceRange.getValue();
       const serviceName = String(sheet.getRange(row, 10).getValue()).toLowerCase();
 
-      if (paymentVal === "Subscription") {
+      if (paymentVal === "Subscription" || paymentVal === "Free") {
         priceRange.setValue(0);
       } else if (paymentVal === "" && currentPrice === 0) {
         priceRange.setValue(getStandardServicePrice_(serviceName));
@@ -127,12 +142,13 @@ function syncCalendarToSheets(showNotification = true) {
   const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
   updateUpcomingToNotPaid_(ctx.appointmentsSheet);
   updateConsecutivePaidCounts_(ctx);
+  updateNoShowLateCounts_(ctx);
   sortAndHideAppointments_(ctx.appointmentsSheet);
-  
+
   // Only show alert and send notification if it's a manual sync (showNotification = true)
   if (showNotification) {
     safeAlert_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
-    
+
     // Send sync notification ONLY if there were actual changes
     if (counts.newCount > 0 || counts.cancelledCount > 0) {
       sendSyncNotification_(ctx, counts.newEventIds);
@@ -151,12 +167,13 @@ function syncThisYear(showNotification = true) {
   const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
   updateUpcomingToNotPaid_(ctx.appointmentsSheet);
   updateConsecutivePaidCounts_(ctx);
+  updateNoShowLateCounts_(ctx);
   sortAndHideAppointments_(ctx.appointmentsSheet);
-  
+
   // Only show alert and send notification if it's a manual sync (showNotification = true)
   if (showNotification) {
     safeAlert_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
-    
+
     // Send sync notification ONLY if there were actual changes
     if (counts.newCount > 0 || counts.cancelledCount > 0) {
       sendSyncNotification_(ctx, counts.newEventIds);
@@ -382,12 +399,51 @@ function updateConsecutivePaidCounts_(ctx) {
         break;
       }
       
-      const isPaid = appt.payment === "Cash" || appt.payment === "Tikkie" || appt.payment === "Subscription" || appt.status.startsWith("Free");
+      const isPaid = appt.payment === "Cash" || appt.payment === "Tikkie" || appt.payment === "Subscription" || appt.payment === "Free" || appt.status.startsWith("Free");
       if (isPaid) consecutivePaid++;
       else break;
     }
 
     clientsSheet.getRange(i + 2, 15).setValue(consecutivePaid); // col O
+  }
+}
+
+/**
+ * Update NoShow (col F) and Late (col G) counts in Clients sheet.
+ * Replaces sheet formulas — counts from appointment history over last 12 months.
+ * Call this after every sync instead of maintaining COUNTIFS formulas in the sheet.
+ */
+function updateNoShowLateCounts_(ctx) {
+  const clientsSheet = ctx.clientsSheet;
+  const apptSheet = ctx.appointmentsSheet;
+  const clientLastRow = clientsSheet.getLastRow();
+  const apptLastRow = apptSheet.getLastRow();
+  if (clientLastRow < 2 || apptLastRow < 2) return;
+
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 1); // 12 months ago
+
+  // Read clients: cols A–L (indices 0–11), need col L (index 11) = ClientID
+  const clientData = clientsSheet.getRange(2, 1, clientLastRow - 1, 12).getValues();
+  // Read appts: cols A–K (indices 0–10), need col K (index 10) = ClientID
+  // A=Date, F=Status(5), H=Late(7), K=ClientID(10)
+  const apptData = apptSheet.getRange(2, 1, apptLastRow - 1, 11).getValues();
+
+  for (let i = 0; i < clientData.length; i++) {
+    const clientId = clientData[i][11]; // col L
+    if (!clientId) continue;
+
+    let noShows = 0, lates = 0;
+    for (const row of apptData) {
+      if (String(row[10]) !== String(clientId)) continue; // col K (index 10)
+      const dateVal = row[0];
+      if (!dateVal || new Date(dateVal) < cutoff) continue;
+      if (row[5] === "No Show") noShows++;      // col F (index 5) = Status
+      if (row[7] === true) lates++;             // col H (index 7) = Late checkbox
+    }
+
+    clientsSheet.getRange(i + 2, 6).setValue(noShows); // col F
+    clientsSheet.getRange(i + 2, 7).setValue(lates);   // col G
   }
 }
 
@@ -549,8 +605,9 @@ function sendSyncNotification_(ctx, newEventIds) {
     const loyaltyLabel        = consecutivePaid >= 5                 ? " \u2705 ELIGIBLE FOR FREE" : "";
     const lastAppt            = getClientLastAppointment_(name, apptSheet);
     const nameDisplay         = doNotCut ? "<u>" + name + "</u>" : name;
+    const needsUpfrontPayment = doNotCut || badge.includes("\u26a0\ufe0f"); // \u26a0\ufe0f or \u26d4
 
-    newAppts.push({ name: nameDisplay, dateStr, timeStr, priceStr, badge, vipBadge, loyaltyLabel, lastAppt, notes });
+    newAppts.push({ name: nameDisplay, dateStr, timeStr, priceStr, badge, vipBadge, loyaltyLabel, lastAppt, notes, needsUpfrontPayment });
   }
 
   if (newAppts.length === 0) return;
@@ -562,6 +619,7 @@ function sendSyncNotification_(ctx, newEventIds) {
     lines.push("");
     lines.push("<b>" + a.dateStr + " at " + a.timeStr + "</b>");
     lines.push("\ud83d\udc64 " + a.name + a.vipBadge + " " + a.badge + a.loyaltyLabel);
+    if (a.needsUpfrontPayment) lines.push("\ud83d\udcb3 Request payment upfront");
     lines.push("\ud83d\udcb6 " + a.priceStr);
     if (a.lastAppt) {
       const notesPart = a.lastAppt.notes ? " \u2014 \"" + a.lastAppt.notes + "\"" : "";
@@ -763,7 +821,9 @@ function getClientLastAppointment_(clientName, apptSheet) {
   const last = clientAppts[0];
 
   let label = last.status;
-  if (last.status === "Paid") {
+  if (last.payment === "Free") {
+    label = "Free";
+  } else if (last.status === "Paid") {
     label = `Paid (€${last.price})`;
   } else if (last.status.startsWith("Free")) {
     label = last.status; // "Free - Family" etc
@@ -884,7 +944,12 @@ function sendTelegramNotification_() {
 
       msg += `<b>${timeStr} — ${nameDisplay}${vipBadge}</b>\n`;
       msg += `${priceStr} · ${badge}${loyaltyLabel}\n`;
-      
+
+      // Payment upfront reminder for unreliable clients
+      if (badge.includes("⚠️") || badge.includes("⛔")) {
+        msg += `💳 Request payment upfront\n`;
+      }
+
       // Last appointment info
       if (appt.lastAppt) {
         msg += `📋 Last: ${appt.lastAppt.label}`;
@@ -892,8 +957,10 @@ function sendTelegramNotification_() {
           msg += ` — "${appt.lastAppt.notes}"`;
         }
         msg += "\n";
+      } else {
+        msg += `🗂️ First visit\n`;
       }
-      
+
       if (notes) msg += `📝 <i>${notes}</i>\n`;
       msg += "\n";
     }
@@ -921,6 +988,7 @@ function sendTelegramNotification_() {
       const timeStr = appt.time ? Utilities.formatDate(new Date(appt.time), tz, "HH:mm") : "—";
       const label = appt.doNotCut ? "⛔ DO NOT CUT" : `${appt.noShows} NS, ${appt.lates} late`;
       msg += `• ${timeStr} — ${appt.name} (${label})\n`;
+      msg += `  💳 Request payment upfront\n`;
     }
     msg += "\n";
   }
@@ -933,6 +1001,7 @@ function sendTelegramNotification_() {
       const timeStr = appt.time ? Utilities.formatDate(new Date(appt.time), tz, "HH:mm") : "—";
       const label = appt.doNotCut ? "⛔ DO NOT CUT" : `${appt.noShows} NS, ${appt.lates} late`;
       msg += `• ${timeStr} — ${appt.name} (${label})\n`;
+      msg += `  💳 Request payment upfront\n`;
     }
   }
 
@@ -1076,6 +1145,19 @@ function getSheetOrThrow_(ss, n) {
 
 function safeAlert_(m) { try { SpreadsheetApp.getUi().alert(m); } catch (e) {} }
 
+function sendTelegramSimple_(text) {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty("TELEGRAM_BOT_TOKEN");
+  const chatId = props.getProperty("TELEGRAM_CHAT_ID");
+  if (!token || !chatId) return;
+  try {
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "post", contentType: "application/json",
+      payload: JSON.stringify({ chat_id: chatId, text })
+    });
+  } catch (e) { Logger.log("Telegram error: " + e.message); }
+}
+
 function nameCase_(v) {
   return String(v ?? "").trim().toLowerCase()
     .split(" ").map(w => w ? w[0].toUpperCase() + w.slice(1) : "").join(" ");
@@ -1164,6 +1246,87 @@ function removeIncrementalSync() {
   });
   PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
   safeAlert_("✅ Incremental sync stopped.");
+}
+
+/**
+ * ONE-CLICK SETUP — installs onEdit trigger (processSheetChanges) + 5-min incremental sync.
+ * Run this once from the desktop Apps Script editor after pasting the script.
+ * Also requires: Services → Google Calendar API → Add (for incremental sync).
+ */
+function setupTriggers() {
+  // Remove existing to avoid duplicates
+  ScriptApp.getProjectTriggers().forEach(t => {
+    const fn = t.getHandlerFunction();
+    if (fn === "processSheetChanges" || fn === "syncCalendarIncremental_") {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
+
+  ScriptApp.newTrigger("processSheetChanges").forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+  ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
+
+  syncCalendarIncremental_(); // first run to get initial sync token
+  safeAlert_("✅ Triggers installed!\n\n• onEdit → processSheetChanges (Dashboard button + sheet logic)\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add");
+}
+
+/**
+ * Installs an installable onOpen trigger so the sheet syncs automatically when opened.
+ * Run this once. This is separate from setupTriggers because it requires explicit authorization.
+ */
+function setupOnOpenSync() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === "onOpenSync_") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("onOpenSync_").forSpreadsheet(SpreadsheetApp.getActive()).onOpen().create();
+  safeAlert_("✅ Sync on sheet open enabled.\nThe sheet will now run an incremental sync every time it is opened.");
+}
+
+function onOpenSync_() {
+  try { syncCalendarIncremental_(); } catch (e) { Logger.log("onOpen sync error: " + e.message); }
+}
+
+/**
+ * Checks that everything is configured correctly.
+ * Run from ✂️ Barber Tools → Validate Setup.
+ */
+function validateSetup() {
+  const lines = [];
+
+  // 1. Calendar
+  try {
+    getCalendarOrThrow_();
+    lines.push("✅ Calendar \"" + CALENDAR_NAME + "\" found");
+  } catch (e) {
+    lines.push("❌ Calendar: " + e.message);
+  }
+
+  // 2. Sheets
+  const ss = SpreadsheetApp.getActive();
+  [APPOINTMENTS_SHEET, CLIENTS_SHEET, SERVICES_SHEET, SUBSCRIPTIONS_SHEET].forEach(name => {
+    lines.push(ss.getSheetByName(name) ? "✅ Sheet \"" + name + "\" found" : "❌ Sheet \"" + name + "\" MISSING");
+  });
+
+  // 3. Telegram
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty("TELEGRAM_BOT_TOKEN");
+  const chatId = props.getProperty("TELEGRAM_CHAT_ID");
+  lines.push(token ? "✅ TELEGRAM_BOT_TOKEN set" : "❌ TELEGRAM_BOT_TOKEN not set");
+  lines.push(chatId ? "✅ TELEGRAM_CHAT_ID set" : "❌ TELEGRAM_CHAT_ID not set");
+
+  // 4. Triggers
+  const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
+  lines.push(triggers.includes("processSheetChanges") ? "✅ onEdit trigger active" : "⚠️ onEdit trigger missing — run 🛠️ Setup All Triggers");
+  lines.push(triggers.includes("syncCalendarIncremental_") ? "✅ 5-min incremental sync active" : "⚠️ 5-min sync missing — run ⚡ Setup Incremental Sync");
+  lines.push(triggers.includes("sendDailyNotification") ? "✅ Daily notification trigger active" : "⚠️ Daily notification missing — run setupNotificationTrigger()");
+  lines.push(triggers.includes("onOpenSync_") ? "✅ onOpen sync active" : "ℹ️ onOpen sync not set (optional — run 📲 Setup Sync on Sheet Open)");
+
+  // 5. Sync token
+  const syncToken = props.getProperty("CALENDAR_SYNC_TOKEN");
+  lines.push(syncToken ? "✅ Calendar sync token present" : "ℹ️ No sync token yet (runs full sync on first trigger fire)");
+
+  safeAlert_("Setup validation:\n\n" + lines.join("\n"));
+  Logger.log(lines.join("\n"));
 }
 
 function syncCalendarIncremental_() {
@@ -1298,6 +1461,7 @@ function syncCalendarIncremental_() {
           item.description || "", serviceToWrite, clientId, eventId, parsed.clientName]);
         if (isSubSale) createSubscriptionEntry_(ctx, parsed.clientName, clientId, dateCell);
         ctx.apptIndex.set(eventId, -1);
+        newEventIds.add(eventId);
         hasChanges = true;
 
       } else if (existingRow !== -1) {
@@ -1332,6 +1496,7 @@ function syncCalendarIncremental_() {
 
     updateUpcomingToNotPaid_(apptSheet);
     updateConsecutivePaidCounts_(ctx);
+    updateNoShowLateCounts_(ctx);
     sortAndHideAppointments_(apptSheet);
 
     if (newToken) props.setProperty("CALENDAR_SYNC_TOKEN", newToken);

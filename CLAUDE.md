@@ -43,7 +43,7 @@ Calendar event title format: `ClientName - Service` (e.g. `Ibrahim - Haircut`)
 - `syncCalendarIncremental_()` — 5-min trigger using Calendar API sync token; exits in ~0.4 sec if nothing changed; uses `LockService` to prevent concurrent runs
 - `doGet(e)` — web app endpoint called by iOS Shortcut when Calendar app closes; calls `syncCalendarIncremental_()` and shares its sync token
 
-After any sync: `updateUpcomingToNotPaid_()`, `updateConsecutivePaidCounts_()`, `sortAndHideAppointments_()` always run.
+After any sync: `updateUpcomingToNotPaid_()`, `updateConsecutivePaidCounts_()`, `updateNoShowLateCounts_()`, `sortAndHideAppointments_()` always run.
 
 ### Subscription Logic
 
@@ -52,10 +52,12 @@ When service is "Monthly Subscription": sets `serviceToWrite = "Haircut"`, price
 ### onEdit Trigger (`processSheetChanges`)
 
 This is an **installable trigger** (not a simple `onEdit`). It handles:
-- Dashboard C2 checkbox → triggers sync
-- Appointments col E (Payment) change → auto-sets Status and Price
+- Dashboard C2 checkbox → triggers `syncCalendarIncremental_()` + sends a Telegram confirmation
+- Appointments col E (Payment) change → auto-sets Status and Price. Valid payment values: Cash, Tikkie, Subscription, Free
 - Appointments col F (Status) change → No Show/Cancelled clears Late checkbox; Free-* sets price to €0
 - Clients col A → auto-formats name to Title Case
+
+**Payment = "Free"** sets price → 0, status → "Paid", and counts toward the consecutive paid streak.
 
 ### Telegram Notifications
 
@@ -78,6 +80,10 @@ Consecutive paid streak (col O) resets on No Show or Late checkbox; at 5+ shows 
 | `sendTelegramNotification_()` | Full daily notification |
 | `sendSyncNotification_(ctx, ids)` | Immediate notification for new appointments |
 | `updateConsecutivePaidCounts_(ctx)` | Recalculates col O streaks for all clients |
+| `updateNoShowLateCounts_(ctx)` | Recalculates col F (NoShow 12m) and col G (Late 12m) for all clients |
+| `setupTriggers()` | Installs onEdit + 5-min sync triggers in one click |
+| `setupOnOpenSync()` | Installs installable onOpen trigger for sync on sheet open |
+| `validateSetup()` | Checks calendar, sheets, Telegram credentials, and triggers |
 | `nameCase_(v)` | Normalises names to Title Case for comparison |
 | `toSheetDateTime_(s, tz, isAllDay)` | Converts Calendar dates to Sheet cell format |
 
@@ -93,9 +99,16 @@ Consecutive paid streak (col O) resets on No Show or Late checkbox; at 5+ shows 
 
 Run these from the Apps Script editor dropdown:
 - `syncThisYear` — syncs entire current calendar year
+- `setupTriggers` — installs onEdit + 5-min sync triggers (run once after initial paste)
+- `setupOnOpenSync` — syncs on sheet open (installable onOpen trigger)
 - `setupNotificationTrigger` / `removeNotificationTrigger` — manage 9 PM daily trigger
 - `setupIncrementalSync` / `removeIncrementalSync` — manage 5-min trigger
+- `validateSetup` — checks calendar, sheets, Telegram, triggers
 - `runMigration` — one-time migration to populate col M (CachedName)
 - `cleanupDuplicates` — removes duplicate rows safely
 - `testTelegramAPI` — tests Telegram bot connection
 - `debugTomorrow` — logs tomorrow's appointments to console
+
+## Personal Preferences
+- I like the barbersheet to be as minimalistic as possible
+- The 
