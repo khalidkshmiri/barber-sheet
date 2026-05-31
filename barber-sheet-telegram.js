@@ -489,7 +489,7 @@ function loadClientNotificationMap_(sheet) {
 }
 
 /**
- * IMAGE NOTIFICATION — builds card via HCTI and sends as photo to Telegram
+ * IMAGE NOTIFICATION — builds card via Screenshotone and sends as photo to Telegram
  */
 function sendDailyImageNotification_() {
   const cal = getCalendarOrThrow_();
@@ -499,8 +499,8 @@ function sendDailyImageNotification_() {
   const unreliable = getUnreliableAppointments_(appts.map(a => nameCase_(a.name)));
   if (!appts.length && !unpaid.length && !unreliable.length) return;
   const html = buildCardHtml_(appts, clientMap, unpaid, unreliable, tomorrow, tz);
-  const imageUrl = generateCardImage_(html);
-  if (imageUrl) sendTelegramPhoto_(imageUrl);
+  const imageBlob = generateCardImage_(html);
+  if (imageBlob) sendTelegramPhoto_(imageBlob);
 }
 
 function buildCardHtml_(appts, clientMap, unpaid, unreliable, tomorrow, tz) {
@@ -569,21 +569,21 @@ body{background:#15110C;font-family:'Inter','Helvetica Neue',Arial,sans-serif;wi
 .hr{height:1px;background:#2E2619;margin-bottom:16px}
 .row{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
 .pill{background:#E2B262;color:#15110C;font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;white-space:nowrap;margin-top:2px;min-width:46px;text-align:center}
-.info{flex:1}
-.name{font-size:15px;font-weight:600;color:#F0E9DA}
+.info{flex:1;min-width:0}
+.name{font-size:15px;font-weight:600;color:#F0E9DA;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .name.do-not-cut{text-decoration:line-through;color:#8A8070}
-.sub{font-size:12px;color:#8A8070;margin-top:2px}
+.sub{font-size:12px;color:#8A8070;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
 .badge{font-size:11px;color:#8A8070}
 .badge.gold{color:#E2B262;font-weight:700}
 .section{font-size:9px;font-weight:700;letter-spacing:2px;color:#8A8070;text-transform:uppercase;margin:16px 0 10px;border-top:1px solid #2E2619;padding-top:14px}
 .urow{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .usub{font-size:11px;color:#8A8070;min-width:56px}
-.uname{font-size:13px;color:#F0E9DA;flex:1}
+.uname{font-size:13px;color:#F0E9DA;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .uprice{font-size:13px;color:#E2B262}
 .footer{margin-top:22px;font-size:9px;color:#2E2619;text-align:center;letter-spacing:1.5px;text-transform:uppercase}
 </style></head><body>
-<div class="card">
+<div id="card" class="card">
 <div class="lbl">MORGEN</div>
 <div class="date">${esc(dateStr)}</div>
 <div class="hr"></div>
@@ -594,29 +594,39 @@ ${apptRows}${unpaidHtml}${alertHtml}
 
 function generateCardImage_(html) {
   const props = PropertiesService.getScriptProperties();
-  const userId = props.getProperty('HCTI_USER_ID');
-  const apiKey = props.getProperty('HCTI_API_KEY');
-  if (!userId || !apiKey) {
-    Logger.log('HCTI credentials missing — set HCTI_USER_ID and HCTI_API_KEY in Script Properties');
+  const apiKey = props.getProperty('SCREENSHOTONE_KEY');
+  if (!apiKey) {
+    Logger.log('SCREENSHOTONE_KEY missing in Script Properties');
     return null;
   }
   try {
-    const resp = UrlFetchApp.fetch('https://hcti.io/v1/image', {
+    const resp = UrlFetchApp.fetch('https://api.screenshotone.com/take', {
       method: 'post',
       contentType: 'application/json',
-      headers: { Authorization: 'Basic ' + Utilities.base64Encode(userId + ':' + apiKey) },
-      payload: JSON.stringify({ html, google_fonts: ['Inter'], viewport_width: 390, device_scale_factor: 2 }),
+      payload: JSON.stringify({
+        access_key: apiKey,
+        html,
+        format: 'jpg',
+        image_quality: 90,
+        viewport_width: 390,
+        selector: '#card',
+        device_scale_factor: 2
+      }),
       muteHttpExceptions: true
     });
-    const data = JSON.parse(resp.getContentText());
-    return data.url || null;
+    const code = resp.getResponseCode();
+    if (code !== 200) {
+      Logger.log('Screenshotone error ' + code + ': ' + resp.getContentText());
+      return null;
+    }
+    return resp.getBlob().setName('card.jpg');
   } catch (e) {
-    Logger.log('HCTI error: ' + e.message);
+    Logger.log('Screenshotone error: ' + e.message);
     return null;
   }
 }
 
-function sendTelegramPhoto_(imageUrl) {
+function sendTelegramPhoto_(imageBlob) {
   const props = PropertiesService.getScriptProperties();
   const token = props.getProperty('TELEGRAM_BOT_TOKEN');
   const chatId = props.getProperty('TELEGRAM_CHAT_ID');
@@ -624,8 +634,7 @@ function sendTelegramPhoto_(imageUrl) {
   try {
     UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendPhoto', {
       method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify({ chat_id: chatId, photo: imageUrl })
+      payload: { chat_id: chatId, photo: imageBlob }
     });
   } catch (e) {
     Logger.log('Telegram photo error: ' + e.message);

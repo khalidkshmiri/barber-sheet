@@ -10,7 +10,7 @@ Built by Khalid (Rotterdam). Designed to work for anyone with a similar setup.
 
 - **Calendar sync** — pulls appointments from a Google Calendar (which can sync from Apple Calendar via iCloud)
 - **Client records** — auto-creates client profiles, tracks visit history, reliability, VIP status, and consecutive paid streaks
-- **Telegram notifications** — daily summary (9 PM), instant alert when new appointments are synced
+- **Telegram notifications** — daily image card (9 PM), instant text alert when new appointments are synced
 - **Subscription support** — tracks monthly subscription credits (up to 4 haircuts/month)
 - **Smart triggers** — 5-minute incremental sync, optional sync on sheet open, mobile-friendly Dashboard button
 
@@ -20,6 +20,7 @@ Built by Khalid (Rotterdam). Designed to work for anyone with a similar setup.
 
 - A Google account with Google Sheets and Google Calendar
 - A Telegram bot (for notifications) — create one via [@BotFather](https://t.me/BotFather)
+- A [Screenshotone](https://screenshotone.com) account (free, 100 images/month) — for the evening image card
 - Optional: Apple Calendar synced to Google Calendar via iCloud
 
 ---
@@ -58,12 +59,13 @@ Create a Google Calendar named exactly `Barber Appointments` (or change `CALENDA
 Calendar event format: `ClientName - Service`  
 Examples: `Ibrahim - Haircut`, `Youssef - Beard Trim`
 
-### 3. Add the script
+### 3. Add the scripts
 
-1. Open your Google Sheet
-2. Go to **Extensions → Apps Script**
-3. Delete any existing code and paste the full contents of `barber-sheet-script.js`
-4. Click **Save**
+The project uses two script files that share the same global scope:
+
+1. Open your Google Sheet → **Extensions → Apps Script**
+2. Delete any existing code in the default file, paste the contents of `barber-sheet-script.js`, and save it
+3. Click **+** next to **Files**, name the new file `barber-sheet-telegram`, paste the contents of `barber-sheet-telegram.js`, and save
 
 ### 4. Enable the Calendar API
 
@@ -83,8 +85,9 @@ In the Apps Script editor:
 |----------|-------|
 | `TELEGRAM_BOT_TOKEN` | Your bot token from @BotFather (e.g. `123456:ABC-DEF...`) |
 | `TELEGRAM_CHAT_ID` | Your Telegram user/chat ID (find it via @userinfobot) |
+| `SCREENSHOTONE_KEY` | Your access key from [screenshotone.com](https://screenshotone.com) dashboard |
 
-If you don't want Telegram notifications, leave these empty — the script will just skip notifications.
+If you don't want Telegram notifications, leave the Telegram properties empty — the script will skip notifications. `SCREENSHOTONE_KEY` is only needed for the evening image card.
 
 ### 6. Run the setup
 
@@ -100,9 +103,11 @@ This installs:
 
 Click **✂️ Barber Tools → 📲 Setup Sync on Sheet Open** to run an incremental sync every time you open the spreadsheet on mobile.
 
-### 8. Optional: daily notification at 9 PM
+### 8. Optional: daily image card at 9 PM
 
-Run `setupNotificationTrigger()` from the Apps Script function dropdown to schedule the daily Telegram summary.
+Run `setupNotificationTrigger` from the Apps Script function dropdown. This schedules a daily 9 PM trigger that generates an image card of tomorrow's appointments (via Screenshotone) and sends it to Telegram as a photo.
+
+Requires `SCREENSHOTONE_KEY` to be set in Script Properties. To test it manually before the trigger fires, run `sendDailyImageNotification_` — note it only runs if there are appointments tomorrow, unpaid from today, or unreliable upcoming clients.
 
 ### 9. Validate your setup
 
@@ -123,7 +128,7 @@ Create an iOS Shortcut that calls this URL when the Calendar app closes — this
 
 ## Configuration
 
-All settings are at the top of `barber-sheet-script.js`:
+All settings are at the top of `barber-sheet-script.js`. Notification logic lives in `barber-sheet-telegram.js`.
 
 ```js
 const CALENDAR_NAME = "Barber Appointments";  // must match your Google Calendar name
