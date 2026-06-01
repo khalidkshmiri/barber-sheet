@@ -8,6 +8,8 @@ A Google Apps Script for a barber business management system. The single script 
 
 **Owner:** Khalid — barber based in Rotterdam, Netherlands
 
+**Daily use:** The spreadsheet is used daily via the iOS Google Sheets app. Features, UI decisions, and interactions should account for a mobile-first experience.
+
 ## Deployment
 
 There are no build or test commands. Development workflow:
