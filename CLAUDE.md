@@ -98,7 +98,7 @@ Consecutive paid streak (col O) resets on No Show or Late checkbox; at 5+ shows 
 | Key                   | Purpose                                                          |
 | --------------------- | ---------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`  | KashmirBarberBot token                                           |
-| `TELEGRAM_CHAT_ID`    | `8005583266`                                                     |
+| `TELEGRAM_CHAT_ID`    | Telegram chat id                                                    |
 | `CALENDAR_SYNC_TOKEN` | Auto-managed incremental sync state; delete to force full resync |
 
 ## Useful Manual Functions
