@@ -377,9 +377,10 @@ function sendTelegramNotification_() {
   // Get names of clients already shown in tomorrow's section for dedup
   const tomorrowNames = appts.map(a => nameCase_(a.name));
   const unreliable = getUnreliableAppointments_(tomorrowNames);
+  const dncRecommendations = getDncRecommendations_(clientMap);
 
   // Only send if there's something to report
-  if (appts.length === 0 && todayUnpaid.length === 0 && unreliable.length === 0) return;
+  if (appts.length === 0 && todayUnpaid.length === 0 && unreliable.length === 0 && dncRecommendations.length === 0) return;
 
   const tomorrowStr = Utilities.formatDate(tomorrow, tz, "EEEE d MMMM");
   let msg = "";
@@ -463,6 +464,14 @@ function sendTelegramNotification_() {
     }
   }
 
+  // ── SECTION 4: DNC recommendations ──
+  if (dncRecommendations.length > 0) {
+    msg += `\n🚫 <b>Overweeg Do Not Cut (${dncRecommendations.length})</b>\n`;
+    for (const r of dncRecommendations) {
+      msg += `• ${r.name} — ${r.reason}\n`;
+    }
+  }
+
   UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "post",
     contentType: "application/json",
@@ -472,6 +481,25 @@ function sendTelegramNotification_() {
       parse_mode: "HTML"
     })
   });
+}
+
+/**
+ * Returns clients who have ≥2 no-shows OR ≥2 lates in the last 12 months but no DNC flag set.
+ * These are suggestion-only — DNC is never auto-set.
+ */
+function getDncRecommendations_(clientMap) {
+  const recs = [];
+  clientMap.forEach((info, name) => {
+    if (info.doNotCut) return; // already flagged
+    const noShows = info.noShow || 0;
+    const lates = info.late || 0;
+    if (noShows < 2 && lates < 2) return;
+    const parts = [];
+    if (noShows >= 2) parts.push(`${noShows} no-shows`);
+    if (lates >= 2) parts.push(`${lates} late`);
+    recs.push({ name, reason: parts.join(', ') });
+  });
+  return recs;
 }
 
 function loadClientNotificationMap_(sheet) {
@@ -502,13 +530,14 @@ function sendDailyImageNotification_() {
   const { appts, clientMap, tomorrow } = getTomorrowAppointments_();
   const unpaid = getTodayUnpaid_();
   const unreliable = getUnreliableAppointments_(appts.map(a => nameCase_(a.name)));
-  if (!appts.length && !unpaid.length && !unreliable.length) return;
-  const html = buildCardHtml_(appts, clientMap, unpaid, unreliable, tomorrow, tz);
+  const dncRecs = getDncRecommendations_(clientMap);
+  if (!appts.length && !unpaid.length && !unreliable.length && !dncRecs.length) return;
+  const html = buildCardHtml_(appts, clientMap, unpaid, unreliable, dncRecs, tomorrow, tz);
   const imageBlob = generateCardImage_(html);
   if (imageBlob) sendTelegramPhoto_(imageBlob);
 }
 
-function buildCardHtml_(appts, clientMap, unpaid, unreliable, tomorrow, tz) {
+function buildCardHtml_(appts, clientMap, unpaid, unreliable, dncRecs, tomorrow, tz) {
   function esc(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -564,6 +593,16 @@ function buildCardHtml_(appts, clientMap, unpaid, unreliable, tomorrow, tz) {
     alertHtml = `<div class="section">LET OP</div>${rows}`;
   }
 
+  let dncHtml = '';
+  if (dncRecs && dncRecs.length) {
+    const rows = dncRecs.map(r => `<div class="urow">
+      <span class="usub">DNC?</span>
+      <span class="uname">${esc(r.name)}</span>
+      <span class="badge">${esc(r.reason)}</span>
+    </div>`).join('');
+    dncHtml = `<div class="section">OVERWEEG DO NOT CUT</div>${rows}`;
+  }
+
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -592,7 +631,7 @@ body{background:#15110C;font-family:'Inter','Helvetica Neue',Arial,sans-serif;wi
 <div class="lbl">MORGEN</div>
 <div class="date">${esc(dateStr)}</div>
 <div class="hr"></div>
-${apptRows}${unpaidHtml}${alertHtml}
+${apptRows}${unpaidHtml}${alertHtml}${dncHtml}
 <div class="footer">Kashmir Barber · Rotterdam</div>
 </div></body></html>`;
 }

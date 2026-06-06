@@ -46,14 +46,8 @@ const VIP_MIN_VISITS = 15;  // total paid visits to earn VIP
 const VIP_MIN_SPENT  = 400; // total € spent to earn VIP
 
 /***************
- * MENU & TRIGGERS
+ * TRIGGERS
  ***************/
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu("✂️ Barber Tools")
-    .addItem("🔄 Sync Now", "syncCalendarIncremental_")
-    .addToUi();
-}
 
 /**
  * INSTALLABLE TRIGGER — linked to 'On edit' in Script Settings
@@ -127,51 +121,59 @@ function processSheetChanges(e) {
 
     // 3. Appointments sheet logic
     if (sheetName === APPOINTMENTS_SHEET && range.getRow() > HEADER_ROW) {
-      const row = range.getRow();
+      const numRows = range.getNumRows();
 
-      // A. Payment type changed (col F=6)
+      // A. Payment type changed (col F=6) — handles multi-row paste
       if (range.getColumn() === 6) {
-        const paymentVal = range.getValue();
-        const statusRange = sheet.getRange(row, 7); // col G = Status
-        const currentStatus = statusRange.getValue();
+        const values = range.getValues(); // 2D array, one row per pasted cell
+        for (let i = 0; i < numRows; i++) {
+          const rowNum = range.getRow() + i;
+          const paymentVal = values[i][0];
+          const statusRange = sheet.getRange(rowNum, 7); // col G = Status
+          const currentStatus = statusRange.getValue();
 
-        // Never override a manually set No Show or Cancelled
-        if (currentStatus !== "No Show" && currentStatus !== "Cancelled") {
-          if (paymentVal === "Cash" || paymentVal === "Tikkie" || paymentVal === "Subscription" || paymentVal === "Free") {
-            statusRange.setValue("Paid");
-          } else if (paymentVal === "" && currentStatus === "Paid") {
-            const dateVal = sheet.getRange(row, 2).getValue(); // col B = Date
-            const isUpcoming = dateVal && new Date(dateVal) >= startOfDay_(new Date());
-            statusRange.setValue(isUpcoming ? "Upcoming" : "Not Paid");
+          // Never override a manually set No Show or Cancelled
+          if (currentStatus !== "No Show" && currentStatus !== "Cancelled") {
+            if (paymentVal === "Cash" || paymentVal === "Tikkie" || paymentVal === "Subscription" || paymentVal === "Free") {
+              statusRange.setValue("Paid");
+            } else if (paymentVal === "" && currentStatus === "Paid") {
+              const dateVal = sheet.getRange(rowNum, 2).getValue(); // col B = Date
+              const isUpcoming = dateVal && new Date(dateVal) >= startOfDay_(new Date());
+              statusRange.setValue(isUpcoming ? "Upcoming" : "Not Paid");
+            }
           }
-        }
 
-        // Price automation
-        const priceRange = sheet.getRange(row, 5); // col E = Price
-        const currentPrice = priceRange.getValue();
-        const serviceName = String(sheet.getRange(row, 11).getValue()).toLowerCase(); // col K = Service
+          // Price automation
+          const priceRange = sheet.getRange(rowNum, 5); // col E = Price
+          const currentPrice = priceRange.getValue();
+          const serviceName = String(sheet.getRange(rowNum, 11).getValue()).toLowerCase(); // col K = Service
 
-        if (paymentVal === "Subscription" || paymentVal === "Free") {
-          priceRange.setValue(0);
-        } else if (paymentVal === "" && currentPrice === 0) {
-          priceRange.setValue(getStandardServicePrice_(serviceName));
+          if (paymentVal === "Subscription" || paymentVal === "Free") {
+            priceRange.setValue(0);
+          } else if (paymentVal === "" && currentPrice === 0) {
+            priceRange.setValue(getStandardServicePrice_(serviceName));
+          }
         }
       }
 
-      // B. Status changed (col G=7)
+      // B. Status changed (col G=7) — handles multi-row paste
       if (range.getColumn() === 7) {
-        const statusVal = range.getValue();
+        const values = range.getValues();
+        for (let i = 0; i < numRows; i++) {
+          const rowNum = range.getRow() + i;
+          const statusVal = values[i][0];
 
-        // Clear Late checkbox ONLY for No Show / Cancelled
-        if (statusVal === "No Show" || statusVal === "Cancelled") {
-          sheet.getRange(row, 9).setValue(false); // col I = Late
-        }
+          // Clear Late checkbox ONLY for No Show / Cancelled
+          if (statusVal === "No Show" || statusVal === "Cancelled") {
+            sheet.getRange(rowNum, 9).setValue(false); // col I = Late
+          }
 
-        // Unify Free-* → canonical state: Payment=Free, Status=Paid, Price=0
-        if (statusVal.startsWith("Free")) {
-          sheet.getRange(row, 5).setValue(0);        // col E = Price
-          sheet.getRange(row, 6).setValue("Free");   // col F = Payment
-          sheet.getRange(row, 7).setValue("Paid");   // col G = Status
+          // Unify Free-* → canonical state: Payment=Free, Status=Paid, Price=0
+          if (String(statusVal).startsWith("Free")) {
+            sheet.getRange(rowNum, 5).setValue(0);        // col E = Price
+            sheet.getRange(rowNum, 6).setValue("Free");   // col F = Payment
+            sheet.getRange(rowNum, 7).setValue("Paid");   // col G = Status
+          }
         }
       }
 
@@ -952,14 +954,14 @@ function removeIncrementalSync() {
 }
 
 /**
- * ONE-CLICK SETUP — installs onEdit trigger + 5-min incremental sync.
+ * ONE-CLICK SETUP — installs onEdit trigger + 5-min incremental sync + midnight sweep.
  */
 function setupTriggers() {
   try {
     Logger.log("setupTriggers: removing existing triggers");
     ScriptApp.getProjectTriggers().forEach(t => {
       const fn = t.getHandlerFunction();
-      if (fn === "processSheetChanges" || fn === "syncCalendarIncremental_") {
+      if (fn === "processSheetChanges" || fn === "syncCalendarIncremental_" || fn === "runMidnightSweep_") {
         ScriptApp.deleteTrigger(t);
       }
     });
@@ -967,15 +969,44 @@ function setupTriggers() {
 
     ScriptApp.newTrigger("processSheetChanges").forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
     ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
+    ScriptApp.newTrigger("runMidnightSweep_").timeBased().everyDays(1).atHour(0).create();
     Logger.log("setupTriggers: triggers created, running initial sync");
 
     syncCalendarIncremental_();
     Logger.log("setupTriggers complete");
-    notify_("✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add", 8);
+    notify_("✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n• Daily at midnight → runMidnightSweep_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add", 8);
   } catch (e) {
     Logger.log("setupTriggers error: " + e.message + "\n" + e.stack);
     sendTelegramError_("Setup triggers failed: " + e.message);
     throw e;
+  }
+}
+
+/**
+ * Installs just the midnight sweep trigger (if setupTriggers was already run).
+ */
+function setupMidnightSweep() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === "runMidnightSweep_") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("runMidnightSweep_").timeBased().everyDays(1).atHour(0).create();
+  notify_("✅ Midnight sweep enabled.");
+}
+
+/**
+ * Runs at 00:00 daily — flips stale Upcoming rows to Not Paid without needing a calendar event.
+ */
+function runMidnightSweep_() {
+  try {
+    Logger.log("runMidnightSweep_ started");
+    const ss = SpreadsheetApp.getActive();
+    const sheet = getSheetOrThrow_(ss, APPOINTMENTS_SHEET);
+    updateUpcomingToNotPaid_(sheet);
+    sortAndHideAppointments_(sheet);
+    Logger.log("runMidnightSweep_ complete");
+  } catch (e) {
+    Logger.log("runMidnightSweep_ error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Midnight sweep failed: " + e.message);
   }
 }
 
@@ -1029,6 +1060,7 @@ function validateSetup() {
   const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
   lines.push(triggers.includes("processSheetChanges") ? "✅ onEdit trigger active" : "⚠️ onEdit trigger missing — run 🛠️ Setup All Triggers");
   lines.push(triggers.includes("syncCalendarIncremental_") ? "✅ 5-min incremental sync active" : "⚠️ 5-min sync missing — run ⚡ Setup Incremental Sync");
+  lines.push(triggers.includes("runMidnightSweep_") ? "✅ Midnight sweep active" : "⚠️ Midnight sweep missing — run setupMidnightSweep()");
   lines.push(triggers.includes("sendDailyNotification") ? "✅ Daily notification trigger active" : "⚠️ Daily notification missing — run setupNotificationTrigger()");
   lines.push(triggers.includes("onOpenSync_") ? "✅ onOpen sync active" : "ℹ️ onOpen sync not set (optional — run 📲 Setup Sync on Sheet Open)");
 
