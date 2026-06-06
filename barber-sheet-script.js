@@ -1285,7 +1285,7 @@ function formatClients_(sheet, COLORS) {
   // DoNotCut has highest urgency — must be immediately visible
   const ruleDefs = [
     { formula: '=$N2=TRUE',   bg: COLORS.tint.red,    fg: COLORS.accent.red    },  // Do Not Cut
-    { formula: '=$G2>=3',     bg: COLORS.tint.orange, fg: COLORS.accent.orange },  // Late(12m) ≥ 3
+    { formula: '=$F2+$G2>=3', bg: COLORS.tint.orange, fg: COLORS.accent.orange },  // NoShow+Late(12m) ≥ 3
     { formula: '=$P2=TRUE',   bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },  // VIP
   ];
 

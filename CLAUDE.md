@@ -57,7 +57,7 @@ When service is "Monthly Subscription": sets `serviceToWrite = "Haircut"`, price
 
 This is an **installable trigger** (not a simple `onEdit`). It handles:
 
-- Dashboard C2 checkbox → triggers `syncCalendarIncremental_()` + sends a Telegram confirmation
+- Dashboard C3 checkbox → triggers `syncCalendarIncremental_()` + sends a Telegram confirmation
 - Appointments col E (Payment) change → auto-sets Status and Price. Valid payment values: Cash, Tikkie, Subscription, Free
 - Appointments col F (Status) change → No Show/Cancelled clears Late checkbox; Free-\* sets price to €0
 - Clients col A → auto-formats name to Title Case
@@ -112,6 +112,7 @@ Run these from the Apps Script editor dropdown:
 - `cleanupDuplicates` — removes duplicate rows safely
 - `testTelegramAPI` — tests Telegram bot connection
 - `debugTomorrow` — logs tomorrow's appointments to console
+- `formatSpreadsheet` — applies dark/charcoal visual theme with pastel accents; safe to re-run
 
 ## Personal Preferences
 
