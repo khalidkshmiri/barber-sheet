@@ -19,10 +19,10 @@ const DATA_ROW   = 3;
 
 // Expected header names in HEADER_ROW (must match cell text exactly, case-sensitive):
 //
-// Appointments: Date | Time | Name | Price | Payment | Status | Tips | Late | Notes | Service | ClientID | EventID | CachedName
-// Clients:      Name | FavService | LastVisit | SocialMedia | Notes | NoShow | Late | Referral | TotalVisits | TotalTips | TotalSpent | ClientID | FirstVisit | DoNotCut | ConsecutivePaid | VIP
-// Services:     Service | Price
-// Subscriptions: Name | Price | Type | StartDate | Credits | Status | Expiry | Notes | ClientID
+// Appointments:  Date | Time | Name | Price | Payment | Status | Tips | Late | Notes | Service | ClientID | EventID | Cached Name
+// Clients:       Name | Favourite Service | Last Visit | Social Media | Notes | No Show | Late | Referral | Total Visits | Total Tips | Total Spent | ClientID | First Visit | Do Not Cut | Consecutive Paid | VIP
+// Services:      Service | Price
+// Subscriptions: Name | Price | Type | Start Date | Credits | Status | Expiry | Notes | ClientID
 
 /***************
  * COLUMN DISCOVERY
@@ -54,7 +54,7 @@ function colLetter_(n) {
 // Uses dynamic column letters so it stays correct if columns move.
 function buildNameFormula_(ctx, row) {
   const clientIdLet      = colLetter_(ctx.apptCols["ClientID"]);
-  const cachedNameLet    = colLetter_(ctx.apptCols["CachedName"]);
+  const cachedNameLet    = colLetter_(ctx.apptCols["Cached Name"]);
   const clientsIdLet     = colLetter_(ctx.clientCols["ClientID"]);
   const clientsNameLet   = colLetter_(ctx.clientCols["Name"]);
   return `=XLOOKUP(${clientIdLet}${row}; Clients!${clientsIdLet}:${clientsIdLet}; Clients!${clientsNameLet}:${clientsNameLet}; ${cachedNameLet}${row})`;
@@ -301,7 +301,7 @@ function upsertEvents_(events, ctx) {
       rowArr[ac["Service"] - 1]    = serviceToWrite;
       rowArr[ac["ClientID"] - 1]   = clientId;
       rowArr[ac["EventID"] - 1]    = eventId;
-      rowArr[ac["CachedName"] - 1] = parsed.clientName;
+      rowArr[ac["Cached Name"] - 1] = parsed.clientName;
       newRows.push(rowArr);
 
       if (isSubscriptionSale) createSubscriptionEntry_(ctx, parsed.clientName, clientId, dateCell);
@@ -361,7 +361,7 @@ function upsertEvents_(events, ctx) {
         updatedRow[ac["Service"] - 1]    = serviceToWrite;
         updatedRow[ac["ClientID"] - 1]   = clientId;
         updatedRow[ac["EventID"] - 1]    = eventId;
-        updatedRow[ac["CachedName"] - 1] = parsed.clientName;
+        updatedRow[ac["Cached Name"] - 1] = parsed.clientName;
         ctx.appointmentsSheet.getRange(existingRow, 1, 1, updatedRow.length).setValues([updatedRow]);
         updatedCount++;
       }
@@ -461,7 +461,7 @@ function updateConsecutivePaidCounts_(ctx, apptData) {
     oVals[i] = [consecutivePaid];
   }
 
-  clientsSheet.getRange(DATA_ROW, cc["ConsecutivePaid"], n, 1).setValues(oVals);
+  clientsSheet.getRange(DATA_ROW, cc["Consecutive Paid"], n, 1).setValues(oVals);
 }
 
 // Update TotalVisits, TotalTips, TotalSpent, LastVisit, FirstVisit in Clients sheet
@@ -521,11 +521,11 @@ function updateClientStats_(ctx, apptData) {
   }
 
   const n = clientData.length;
-  clientsSheet.getRange(DATA_ROW, cc["LastVisit"],      n, 1).setValues(lastVisits);
-  clientsSheet.getRange(DATA_ROW, cc["TotalVisits"],    n, 1).setValues(totalVisitVals);
-  clientsSheet.getRange(DATA_ROW, cc["TotalTips"],      n, 1).setValues(totalTipsVals);
-  clientsSheet.getRange(DATA_ROW, cc["TotalSpent"],     n, 1).setValues(totalSpentVals);
-  clientsSheet.getRange(DATA_ROW, cc["FirstVisit"],     n, 1).setValues(firstVisits);
+  clientsSheet.getRange(DATA_ROW, cc["Last Visit"],      n, 1).setValues(lastVisits);
+  clientsSheet.getRange(DATA_ROW, cc["Total Visits"],    n, 1).setValues(totalVisitVals);
+  clientsSheet.getRange(DATA_ROW, cc["Total Tips"],      n, 1).setValues(totalTipsVals);
+  clientsSheet.getRange(DATA_ROW, cc["Total Spent"],     n, 1).setValues(totalSpentVals);
+  clientsSheet.getRange(DATA_ROW, cc["First Visit"],     n, 1).setValues(firstVisits);
 }
 
 // Update NoShow and Late count columns in Clients sheet
@@ -567,7 +567,7 @@ function updateNoShowLateCounts_(ctx, apptData) {
     lateVals[i]   = [lates];
   }
 
-  clientsSheet.getRange(DATA_ROW, cc["NoShow"], n, 1).setValues(noShowVals);
+  clientsSheet.getRange(DATA_ROW, cc["No Show"], n, 1).setValues(noShowVals);
   clientsSheet.getRange(DATA_ROW, cc["Late"],   n, 1).setValues(lateVals);
 }
 
@@ -627,7 +627,7 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
     const startYMD   = ymd_(startDate instanceof Date ? startDate : new Date(startDate), ctx.calTz);
     for (const r of checkData) {
       const rowName      = nameCase_(String(r[sc["Name"] - 1] || ""));
-      const rowStartDate = r[sc["StartDate"] - 1];
+      const rowStartDate = r[sc["Start Date"] - 1];
       if (rowName === name && rowStartDate && ymd_(new Date(rowStartDate), ctx.calTz) === startYMD) return;
     }
   }
@@ -645,7 +645,7 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
   const paymentLetAppt   = colLetter_(ac["Payment"]);
   const statusLetAppt    = colLetter_(ac["Status"]);
   const dateLetAppt      = colLetter_(ac["Date"]);
-  const startDateLetSubs = colLetter_(sc["StartDate"]);
+  const startDateLetSubs = colLetter_(sc["Start Date"]);
   const expiryLetSubs    = colLetter_(sc["Expiry"]);
   const creditsFormula = `=MAX(0; 4 - COUNTIFS(Appointments!$${clientIdLetAppt}:$${clientIdLetAppt}; ${clientIdLetSubs}${r}; Appointments!$${paymentLetAppt}:$${paymentLetAppt}; "Subscription"; Appointments!$${statusLetAppt}:$${statusLetAppt}; "Paid"; Appointments!$${dateLetAppt}:$${dateLetAppt}; ">="&${startDateLetSubs}${r}; Appointments!$${dateLetAppt}:$${dateLetAppt}; "<="&(${expiryLetSubs}${r} + 21)))`;
 
@@ -653,7 +653,7 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
   const rowArr = new Array(ncols).fill("");
   rowArr[sc["Name"] - 1]      = nameFormula;
   rowArr[sc["Price"] - 1]     = monthlyPrice;
-  rowArr[sc["StartDate"] - 1] = startDate;
+  rowArr[sc["Start Date"] - 1] = startDate;
   rowArr[sc["Credits"] - 1]   = creditsFormula;
   rowArr[sc["Status"] - 1]    = "Active";
   rowArr[sc["Expiry"] - 1]    = addDays_(startDate, 31);
@@ -665,7 +665,7 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
   const newLastRow = subsSheet.getLastRow();
   if (newLastRow >= DATA_ROW) {
     subsSheet.getRange(DATA_ROW, 1, newLastRow - DATA_ROW + 1, ncols)
-      .sort({ column: sc["StartDate"], ascending: false });
+      .sort({ column: sc["Start Date"], ascending: false });
   }
 
   const entry = { start: startDate };
@@ -694,12 +694,12 @@ function runMigration() {
   for (let i = 0; i < data.length; i++) {
     const row           = i + DATA_ROW;
     const currentName   = String(data[i][ac["Name"] - 1] || "");
-    const existingCache = String(data[i][ac["CachedName"] - 1] || "");
+    const existingCache = String(data[i][ac["Cached Name"] - 1] || "");
     cachedNames.push([existingCache || currentName]);
     updatedFormulas.push([buildNameFormula_({ apptCols: ac, clientCols: cc }, row)]);
   }
 
-  sheet.getRange(DATA_ROW, ac["CachedName"], cachedNames.length,    1).setValues(cachedNames);
+  sheet.getRange(DATA_ROW, ac["Cached Name"], cachedNames.length,    1).setValues(cachedNames);
   sheet.getRange(DATA_ROW, ac["Name"],       updatedFormulas.length, 1).setFormulas(updatedFormulas);
 
   safeAlert_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide the CachedName column.`);
@@ -783,7 +783,7 @@ function loadActiveSubscriptionsIndex_(sheet, cols) {
     const status    = data[i][cols["Status"] - 1];
     const expiryRaw = data[i][cols["Expiry"] - 1];
     const clientId  = data[i][cols["ClientID"] - 1];
-    const startRaw  = data[i][cols["StartDate"] - 1];
+    const startRaw  = data[i][cols["Start Date"] - 1];
     const expiry = expiryRaw ? new Date(expiryRaw) : null;
     if (status !== "Active" || !expiry || expiry < today) continue;
     if (credits !== "" && Number(credits) <= 0) continue;
@@ -1056,7 +1056,7 @@ function syncCalendarIncremental_() {
         rowArr[ac["Service"] - 1]    = serviceToWrite;
         rowArr[ac["ClientID"] - 1]   = clientId;
         rowArr[ac["EventID"] - 1]    = eventId;
-        rowArr[ac["CachedName"] - 1] = parsed.clientName;
+        rowArr[ac["Cached Name"] - 1] = parsed.clientName;
         newRows.push(rowArr);
 
         if (isSubSale) createSubscriptionEntry_(ctx, parsed.clientName, clientId, dateCell);
@@ -1084,7 +1084,7 @@ function syncCalendarIncremental_() {
           updatedRow[ac["Service"] - 1]    = serviceToWrite;
           updatedRow[ac["ClientID"] - 1]   = clientId;
           updatedRow[ac["EventID"] - 1]    = eventId;
-          updatedRow[ac["CachedName"] - 1] = parsed.clientName;
+          updatedRow[ac["Cached Name"] - 1] = parsed.clientName;
           ctx.appointmentsSheet.getRange(existingRow, 1, 1, updatedRow.length).setValues([updatedRow]);
         }
       }
@@ -1135,7 +1135,7 @@ function cleanupDuplicates() {
     const row     = data[i];
     const dateStr = row[ac["Date"] - 1]       ? new Date(row[ac["Date"] - 1]).toDateString() : "";
     const timeStr = row[ac["Time"] - 1]       ? String(row[ac["Time"] - 1]) : "";
-    const name    = String(row[ac["Name"] - 1] || row[ac["CachedName"] - 1] || "").trim().toLowerCase();
+    const name    = String(row[ac["Name"] - 1] || row[ac["Cached Name"] - 1] || "").trim().toLowerCase();
     const payment = String(row[ac["Payment"] - 1] || "").trim();
     const status  = String(row[ac["Status"] - 1]  || "").trim();
 
