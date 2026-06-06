@@ -1139,26 +1139,26 @@ function doGet(e) {
  */
 function formatSpreadsheet() {
   const COLORS = {
-    bg:        '#1E1E2E',  // dark charcoal base
-    surface:   '#252535',  // alternating row tint
-    headerBg:  '#13131F',  // header row
-    text:      '#CDD6F4',  // primary text
-    textMuted: '#585B70',  // secondary/label text
+    bg:        '#FAF7F2',  // warm cream base
+    surface:   '#F2EDE5',  // slightly darker cream (alternating rows)
+    headerBg:  '#E8DDD0',  // warm tan header
+    text:      '#2C2017',  // deep warm brown
+    textMuted: '#8C7B6B',  // muted mid-brown
     accent: {
-      blue:   '#89B4FA',
-      green:  '#A6E3A1',
-      red:    '#F38BA8',
-      yellow: '#F9E2AF',
-      purple: '#CBA6F7',
-      orange: '#FAB387',
+      blue:   '#4A7CA7',  // steel blue
+      green:  '#5A8A5A',  // sage green
+      red:    '#B85050',  // terracotta
+      yellow: '#B8920A',  // amber
+      purple: '#8A6A9A',  // mauve
+      orange: '#C47040',  // burnt orange
     },
     tint: {
-      green:  '#1E3A2F',
-      red:    '#3A1F20',
-      yellow: '#3A3018',
-      purple: '#2A1F3D',
-      blue:   '#1A2A3A',
-      orange: '#3A2A14',
+      green:  '#E8F2E8',  // light sage
+      red:    '#F5E4E4',  // light terracotta
+      yellow: '#F5EDD0',  // light amber
+      purple: '#EDE8F2',  // light mauve
+      blue:   '#E4EEF5',  // light steel
+      orange: '#F5EAE0',  // light burnt orange
     },
   };
 
@@ -1195,19 +1195,24 @@ function applyBaseTheme_(sheet, COLORS) {
   // Unhide all columns so re-runs don't stack hidden columns
   sheet.showColumns(1, maxCols);
 
-  // Dark base — skip setFontFamily/setFontSize, they are very slow on large ranges
+  // Base — skip setFontFamily/setFontSize, they are very slow on large ranges
   sheet.getRange(1, 1, styledRows, maxCols)
     .setBackground(COLORS.bg)
     .setFontColor(COLORS.text)
     .setFontWeight('normal');
 
-  // Header row: darker bg, blue accent text, bold
+  // Header row: warm tan bg, dark text bold
   sheet.getRange(1, 1, 1, maxCols)
     .setBackground(COLORS.headerBg)
-    .setFontColor(COLORS.accent.blue)
+    .setFontColor(COLORS.text)
     .setFontWeight('bold');
 
   sheet.setFrozenRows(1);
+
+  // Taller rows for better tap targets on mobile (26px)
+  if (maxRows > 1) {
+    sheet.setRowHeightsForced(2, maxRows - 1, 26);
+  }
 
   // Alternating row rule — must go last (lowest priority) so status colors win
   // Use maxRows (not a hardcoded large number) to avoid auto-expanding the sheet
@@ -1229,8 +1234,9 @@ function formatAppointments_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // Column widths (0 = will be hidden)
-  const widths = [85, 65, 140, 65, 95, 100, 60, 50, 160, 115, 80, 80, 80];
+  // Portrait-optimised widths: A–D (58+58+120+58=294px) fit in ~360px viewport,
+  // so Payment (E) is just at the edge — one small scroll reveals the action column.
+  const widths = [58, 58, 120, 58, 90, 90, 55, 45, 140, 100, 80, 80, 80];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
   // Hide internal ID/lookup columns: K=ClientID L=EventID M=CachedName
@@ -1260,7 +1266,7 @@ function formatAppointments_(sheet, COLORS) {
   );
 
   sheet.setConditionalFormatRules([...rules, ...baseRules]);
-  sheet.setTabColor(COLORS.accent.green);
+  sheet.setTabColor(COLORS.accent.green);  // sage green tab
 }
 
 /**
@@ -1274,11 +1280,17 @@ function formatClients_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  const widths = [140, 115, 95, 125, 155, 80, 70, 105, 80, 75, 85, 80, 95, 75, 100, 50];
+  // A=Name, B=FavService, C=LastVisit, D=SocialMedia, E=Notes, F=NoShow, G=Late,
+  // H=Referral, I=TotalVisits, J=TotalTips, K=TotalSpent, L=ClientID, M=FirstVisit,
+  // N=DoNotCut, O=ConsecutivePaid, P=VIP
+  const widths = [130, 105, 90, 100, 140, 75, 65, 90, 70, 65, 75, 70, 80, 70, 80, 50];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
-  // Hide ClientID column (L=12)
-  sheet.hideColumns(12, 1);
+  // Hide statistical/rarely-checked columns on mobile:
+  // D=SocialMedia(4), H=Referral(8), I=TotalVisits(9), J=TotalTips(10), K=TotalSpent(11),
+  // L=ClientID(12), M=FirstVisit(13)
+  sheet.hideColumns(4, 1);   // D SocialMedia
+  sheet.hideColumns(8, 6);   // H–M (Referral, TotalVisits, TotalTips, TotalSpent, ClientID, FirstVisit)
 
   const dataRange = sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 16);
 
@@ -1299,7 +1311,7 @@ function formatClients_(sheet, COLORS) {
   );
 
   sheet.setConditionalFormatRules([...rules, ...baseRules]);
-  sheet.setTabColor(COLORS.accent.purple);
+  sheet.setTabColor(COLORS.accent.purple);  // mauve tab
 }
 
 /** Formats the Services sheet. */
@@ -1309,7 +1321,7 @@ function formatServices_(sheet, COLORS) {
   sheet.setColumnWidth(1, 150);
   sheet.setColumnWidth(2, 90);
   sheet.setConditionalFormatRules(baseRules);
-  sheet.setTabColor(COLORS.textMuted);
+  sheet.setTabColor(COLORS.textMuted);  // muted brown tab — de-emphasised
 }
 
 /** Formats the Subscriptions sheet. */
@@ -1317,7 +1329,7 @@ function formatSubscriptions_(sheet, COLORS) {
   if (!sheet) return;
   const baseRules = applyBaseTheme_(sheet, COLORS);
   sheet.setConditionalFormatRules(baseRules);
-  sheet.setTabColor(COLORS.accent.purple);
+  sheet.setTabColor(COLORS.accent.orange);  // burnt orange tab — distinct from Clients mauve
 }
 
 /**
@@ -1339,6 +1351,13 @@ function formatDashboard_(sheet, COLORS) {
   });
   if (styledCols >= 10) sheet.getRange('J2').setFontColor(COLORS.accent.blue).setFontWeight('bold');
 
+  // Row 3 = sync checkbox row (C3). Give it a warm tint to stand out as the tap target.
+  if (styledCols >= 3) {
+    sheet.getRange(3, 1, 1, styledCols)
+      .setBackground(COLORS.tint.blue)
+      .setFontWeight('bold');
+  }
+
   sheet.setConditionalFormatRules(baseRules);
-  sheet.setTabColor(COLORS.accent.blue);
+  sheet.setTabColor(COLORS.accent.blue);  // steel blue tab
 }
