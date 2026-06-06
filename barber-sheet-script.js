@@ -1209,11 +1209,11 @@ function applyBaseTheme_(sheet, COLORS) {
 
   sheet.setFrozenRows(1);
 
-  // Sized for 25% zoom on iPhone 16 Pro Max (max zoom-out):
-  // visible sheet height ≈ 3000px → header 150px + 10 × 280px data rows fills the screen
-  sheet.setRowHeight(1, 150);
+  // Sized for 25% zoom on iPhone 16 Pro Max:
+  // visible sheet height ≈ 3000px → header 120px + 10 × 240px ≈ 2520px (comfortable, slight breathing room)
+  sheet.setRowHeight(1, 120);
   if (maxRows > 1) {
-    sheet.setRowHeightsForced(2, maxRows - 1, 280);
+    sheet.setRowHeightsForced(2, maxRows - 1, 240);
   }
 
   // Alternating row rule — must go last (lowest priority) so status colors win
@@ -1236,20 +1236,45 @@ function formatAppointments_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // At 25% zoom (max zoom-out on iOS), visible width ≈ 1720px.
-  // A–J total = 1720px so all columns fill the screen without horizontal scrolling.
-  // A=Date(120) B=Time(120) C=Name(250) D=Price(120) E=Payment(180) F=Status(180)
-  // G=Tips(120) H=Late(100) I=Notes(280) J=Service(250) → total 1720
-  const widths = [120, 120, 250, 120, 180, 180, 120, 100, 280, 250, 80, 80, 80];
+  // At 25% zoom, visible width ≈ 1720px. A–J total ≈ 1550px (slight right margin feels cleaner).
+  // A=Date(110) B=Time(110) C=Name(220) D=Price(110) E=Payment(155) F=Status(155)
+  // G=Tips(110) H=Late(90) I=Notes(240) J=Service(220) → total 1520
+  const widths = [110, 110, 220, 110, 155, 155, 110, 90, 240, 220, 80, 80, 80];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
   // Hide internal ID/lookup columns: K=ClientID L=EventID M=CachedName
   sheet.hideColumns(11, 3);
 
-  const dataRange = sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 13);
+  const maxRows = sheet.getMaxRows();
+  const dataRows = Math.max(maxRows - 1, 1);
+  const dataRange = sheet.getRange(2, 1, dataRows, 13);
 
-  // Status/payment rules in priority order (index 0 = highest priority)
-  // Late checkbox (H) wins over everything — makes overdue/late appointments immediately visible
+  // --- Typography (all sizes calibrated for 25% zoom: sheetPt × 0.25 = visible pt) ---
+  // Base: 60pt → ~15pt visible. Bold hero cols (Time, Name): 72pt → ~18pt visible.
+  // Secondary (Notes, Service): 52pt muted → ~13pt visible.
+  dataRange
+    .setFontSize(60)
+    .setVerticalAlignment('middle')
+    .setFontWeight('normal');
+
+  // Header: 40pt bold → ~10pt visible — enough to read column labels
+  sheet.getRange(1, 1, 1, 10).setFontSize(40);
+
+  // Hero columns: Time (B=2) and Name (C=3) — what you scan first
+  sheet.getRange(2, 2, dataRows, 1).setFontSize(72).setFontWeight('bold'); // Time
+  sheet.getRange(2, 3, dataRows, 1).setFontSize(72).setFontWeight('bold'); // Name
+
+  // Secondary columns: muted colour, slightly smaller — supporting info
+  sheet.getRange(2, 9, dataRows, 1).setFontSize(52).setFontColor(COLORS.textMuted);  // Notes
+  sheet.getRange(2, 10, dataRows, 1).setFontSize(52).setFontColor(COLORS.textMuted); // Service
+
+  // Horizontal alignment — centre short/numeric cols, left-align text cols
+  const centred = [1, 2, 4, 5, 6, 7, 8]; // Date, Time, Price, Payment, Status, Tips, Late
+  centred.forEach(col => sheet.getRange(2, col, dataRows, 1).setHorizontalAlignment('center'));
+  // Name(3), Notes(9), Service(10) stay left-aligned (default)
+
+  // --- Conditional format rules (priority order, index 0 = highest) ---
+  // Late checkbox (H) wins over everything — overdue appointments immediately visible
   const ruleDefs = [
     { formula: '=$H2=TRUE',              bg: COLORS.tint.orange, fg: COLORS.accent.orange },
     { formula: '=$F2="No Show"',         bg: COLORS.tint.red,    fg: COLORS.accent.red    },
@@ -1270,7 +1295,7 @@ function formatAppointments_(sheet, COLORS) {
   );
 
   sheet.setConditionalFormatRules([...rules, ...baseRules]);
-  sheet.setTabColor(COLORS.accent.green);  // sage green tab
+  sheet.setTabColor(COLORS.accent.green);
 }
 
 /**
@@ -1284,12 +1309,11 @@ function formatClients_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // Visible columns (after hiding D, H–M): A B C E F G N O P = 9 cols
-  // At 25% zoom, total visible width ≈ 1720px → each visible col scaled accordingly.
-  // Hidden cols (D, H–M) get a placeholder width; they won't be visible anyway.
-  // A=Name(280) B=FavService(220) C=LastVisit(190) D=hidden(100) E=Notes(300)
-  // F=NoShow(160) G=Late(140) H–M=hidden(100ea) N=DoNotCut(150) O=Consec(170) P=VIP(110)
-  const widths = [280, 220, 190, 100, 300, 160, 140, 100, 100, 100, 100, 100, 100, 150, 170, 110];
+  // Visible columns (after hiding D, H–M): A B C E F G N O P = 9 cols, total ~1520px
+  // Hidden cols (D, H–M) get a placeholder width.
+  // A=Name(240) B=FavService(190) C=LastVisit(170) D=hidden(100) E=Notes(260)
+  // F=NoShow(140) G=Late(120) H–M=hidden(100ea) N=DoNotCut(130) O=Consec(150) P=VIP(100)
+  const widths = [240, 190, 170, 100, 260, 140, 120, 100, 100, 100, 100, 100, 100, 130, 150, 100];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
   // Hide statistical/rarely-checked columns on mobile:
@@ -1298,7 +1322,24 @@ function formatClients_(sheet, COLORS) {
   sheet.hideColumns(4, 1);   // D SocialMedia
   sheet.hideColumns(8, 6);   // H–M (Referral, TotalVisits, TotalTips, TotalSpent, ClientID, FirstVisit)
 
-  const dataRange = sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 16);
+  const maxRows = sheet.getMaxRows();
+  const dataRows = Math.max(maxRows - 1, 1);
+  const dataRange = sheet.getRange(2, 1, dataRows, 16);
+
+  // Typography: same zoom calibration as Appointments
+  dataRange.setFontSize(60).setVerticalAlignment('middle').setFontWeight('normal');
+  sheet.getRange(1, 1, 1, 16).setFontSize(40);
+
+  // Name (A=1) is the hero column
+  sheet.getRange(2, 1, dataRows, 1).setFontSize(72).setFontWeight('bold');
+
+  // LastVisit (C=3), NoShow (F=6), Late (G=7): centre-align numeric/date cols
+  [3, 6, 7, 14, 15, 16].forEach(col =>
+    sheet.getRange(2, col, dataRows, 1).setHorizontalAlignment('center')
+  );
+
+  // Notes (E=5): muted, slightly smaller
+  sheet.getRange(2, 5, dataRows, 1).setFontSize(52).setFontColor(COLORS.textMuted);
 
   // DoNotCut has highest urgency — must be immediately visible
   const ruleDefs = [
