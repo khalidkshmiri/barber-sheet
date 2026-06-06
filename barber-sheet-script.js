@@ -1130,3 +1130,215 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.TEXT);
   }
 }
+
+// ── FORMATTING ────────────────────────────────────────────────────────────────
+
+/**
+ * Applies a dark/charcoal visual theme with pastel accents to all sheets.
+ * Run from the Apps Script editor dropdown. Safe to re-run at any time.
+ */
+function formatSpreadsheet() {
+  const COLORS = {
+    bg:        '#1E1E2E',  // dark charcoal base
+    surface:   '#252535',  // alternating row tint
+    headerBg:  '#13131F',  // header row
+    text:      '#CDD6F4',  // primary text
+    textMuted: '#585B70',  // secondary/label text
+    accent: {
+      blue:   '#89B4FA',
+      green:  '#A6E3A1',
+      red:    '#F38BA8',
+      yellow: '#F9E2AF',
+      purple: '#CBA6F7',
+      orange: '#FAB387',
+    },
+    tint: {
+      green:  '#1E3A2F',
+      red:    '#3A1F20',
+      yellow: '#3A3018',
+      purple: '#2A1F3D',
+      blue:   '#1A2A3A',
+      orange: '#3A2A14',
+    },
+  };
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  formatAppointments_(ss.getSheetByName('Appointments'), COLORS);
+  formatClients_(ss.getSheetByName('Clients'), COLORS);
+  formatServices_(ss.getSheetByName('Services'), COLORS);
+  formatSubscriptions_(ss.getSheetByName('Subscriptions'), COLORS);
+  formatDashboard_(ss.getSheetByName('Dashboard'), COLORS);
+
+  Logger.log('Flushing...');
+  SpreadsheetApp.flush();
+  Logger.log('✅ Theme applied successfully.');
+}
+
+/**
+ * Sets the dark base on a sheet: clears old rules, dark bg, styled header, freezes row 1.
+ * Returns a single alternating-row rule to be appended last (lowest priority) by the caller.
+ */
+function applyBaseTheme_(sheet, COLORS) {
+  if (!sheet) return [];
+
+  Logger.log('Formatting: ' + sheet.getName());
+
+  const maxRows = sheet.getMaxRows();
+  const maxCols = Math.min(Math.max(sheet.getLastColumn(), 1), sheet.getMaxColumns());
+  // Style only up to the actual sheet boundary — never exceed maxRows or Google Sheets adds rows
+  const styledRows = Math.min(Math.max(sheet.getLastRow(), 1) + 10, maxRows);
+
+  // Clear existing conditional format rules (idempotency)
+  sheet.clearConditionalFormatRules();
+
+  // Unhide all columns so re-runs don't stack hidden columns
+  sheet.showColumns(1, maxCols);
+
+  // Dark base — skip setFontFamily/setFontSize, they are very slow on large ranges
+  sheet.getRange(1, 1, styledRows, maxCols)
+    .setBackground(COLORS.bg)
+    .setFontColor(COLORS.text)
+    .setFontWeight('normal');
+
+  // Header row: darker bg, blue accent text, bold
+  sheet.getRange(1, 1, 1, maxCols)
+    .setBackground(COLORS.headerBg)
+    .setFontColor(COLORS.accent.blue)
+    .setFontWeight('bold');
+
+  sheet.setFrozenRows(1);
+
+  // Alternating row rule — must go last (lowest priority) so status colors win
+  // Use maxRows (not a hardcoded large number) to avoid auto-expanding the sheet
+  const altRule = SpreadsheetApp.newConditionalFormatRule()
+    .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, ['=MOD(ROW(),2)=0'])
+    .setBackground(COLORS.surface)
+    .setRanges([sheet.getRange(2, 1, Math.max(maxRows - 1, 1), maxCols)])
+    .build();
+
+  return [altRule];
+}
+
+/**
+ * Formats the Appointments sheet.
+ * Columns: A=Date B=Time C=Name D=Price E=Payment F=Status G=Tips H=Late I=Notes J=Service K=ClientID L=EventID M=CachedName
+ */
+function formatAppointments_(sheet, COLORS) {
+  if (!sheet) return;
+
+  const baseRules = applyBaseTheme_(sheet, COLORS);
+
+  // Column widths (0 = will be hidden)
+  const widths = [85, 65, 140, 65, 95, 100, 60, 50, 160, 115, 80, 80, 80];
+  widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
+
+  // Hide internal ID/lookup columns: K=ClientID L=EventID M=CachedName
+  sheet.hideColumns(11, 3);
+
+  const dataRange = sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 13);
+
+  // Status/payment rules in priority order (index 0 = highest priority)
+  // Late checkbox (H) wins over everything — makes overdue/late appointments immediately visible
+  const ruleDefs = [
+    { formula: '=$H2=TRUE',              bg: COLORS.tint.orange, fg: COLORS.accent.orange },
+    { formula: '=$F2="No Show"',         bg: COLORS.tint.red,    fg: COLORS.accent.red    },
+    { formula: '=$F2="Cancelled"',       bg: COLORS.bg,          fg: COLORS.textMuted     },
+    { formula: '=$E2="Subscription"',    bg: COLORS.tint.purple, fg: COLORS.accent.purple },
+    { formula: '=$F2="Paid"',            bg: COLORS.tint.green,  fg: COLORS.accent.green  },
+    { formula: '=$F2="Upcoming"',        bg: COLORS.tint.blue,   fg: COLORS.accent.blue   },
+    { formula: '=$F2="Not Paid"',        bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },
+  ];
+
+  const rules = ruleDefs.map(r =>
+    SpreadsheetApp.newConditionalFormatRule()
+      .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, [r.formula])
+      .setBackground(r.bg)
+      .setFontColor(r.fg)
+      .setRanges([dataRange])
+      .build()
+  );
+
+  sheet.setConditionalFormatRules([...rules, ...baseRules]);
+  sheet.setTabColor(COLORS.accent.green);
+}
+
+/**
+ * Formats the Clients sheet.
+ * Columns: A=Name B=FavService C=LastVisit D=SocialMedia E=Notes F=NoShow(12m) G=Late(12m)
+ *          H=Referral I=TotalVisits J=TotalTips K=TotalSpent L=ClientID M=FirstVisit
+ *          N=DoNotCut O=ConsecutivePaid P=VIP
+ */
+function formatClients_(sheet, COLORS) {
+  if (!sheet) return;
+
+  const baseRules = applyBaseTheme_(sheet, COLORS);
+
+  const widths = [140, 115, 95, 125, 155, 80, 70, 105, 80, 75, 85, 80, 95, 75, 100, 50];
+  widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
+
+  // Hide ClientID column (L=12)
+  sheet.hideColumns(12, 1);
+
+  const dataRange = sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 16);
+
+  // DoNotCut has highest urgency — must be immediately visible
+  const ruleDefs = [
+    { formula: '=$N2=TRUE',   bg: COLORS.tint.red,    fg: COLORS.accent.red    },  // Do Not Cut
+    { formula: '=$G2>=3',     bg: COLORS.tint.orange, fg: COLORS.accent.orange },  // Late(12m) ≥ 3
+    { formula: '=$P2=TRUE',   bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },  // VIP
+  ];
+
+  const rules = ruleDefs.map(r =>
+    SpreadsheetApp.newConditionalFormatRule()
+      .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, [r.formula])
+      .setBackground(r.bg)
+      .setFontColor(r.fg)
+      .setRanges([dataRange])
+      .build()
+  );
+
+  sheet.setConditionalFormatRules([...rules, ...baseRules]);
+  sheet.setTabColor(COLORS.accent.purple);
+}
+
+/** Formats the Services sheet. */
+function formatServices_(sheet, COLORS) {
+  if (!sheet) return;
+  const baseRules = applyBaseTheme_(sheet, COLORS);
+  sheet.setColumnWidth(1, 150);
+  sheet.setColumnWidth(2, 90);
+  sheet.setConditionalFormatRules(baseRules);
+  sheet.setTabColor(COLORS.textMuted);
+}
+
+/** Formats the Subscriptions sheet. */
+function formatSubscriptions_(sheet, COLORS) {
+  if (!sheet) return;
+  const baseRules = applyBaseTheme_(sheet, COLORS);
+  sheet.setConditionalFormatRules(baseRules);
+  sheet.setTabColor(COLORS.accent.purple);
+}
+
+/**
+ * Formats the Dashboard sheet.
+ * Sync checkbox is at C3 — clearFormats is avoided to preserve data validation.
+ */
+function formatDashboard_(sheet, COLORS) {
+  if (!sheet) return;
+
+  const baseRules = applyBaseTheme_(sheet, COLORS);
+
+  const styledRows = Math.min(Math.max(sheet.getLastRow(), 1) + 5, 50);
+  const styledCols = Math.min(Math.max(sheet.getLastColumn(), 1), 15);
+
+  // Label column (B) dimmed; value columns bold
+  sheet.getRange(1, 2, styledRows, 1).setFontColor(COLORS.textMuted);
+  [3, 8, 9, 10].forEach(col => {
+    if (col <= styledCols) sheet.getRange(1, col, styledRows, 1).setFontWeight('bold').setFontColor(COLORS.text);
+  });
+  if (styledCols >= 10) sheet.getRange('J2').setFontColor(COLORS.accent.blue).setFontWeight('bold');
+
+  sheet.setConditionalFormatRules(baseRules);
+  sheet.setTabColor(COLORS.accent.blue);
+}
