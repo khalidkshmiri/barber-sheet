@@ -1271,9 +1271,9 @@ function formatAppointments_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // A=spacer(40) B=Date(150) C=Time(150) D=Name(300) E=Price(150) F=Payment(200) G=Status(200)
-  // H=Tips(150) I=Late(150) J=Notes(150) K=Service(150) L=CachedName(300) M=ClientID(150) N=EventID(300) O=spacer(40)
-  const widths = [40, 150, 150, 300, 150, 200, 200, 150, 150, 150, 150, 300, 150, 300, 40];
+  // A=spacer(20) B=Date(125) C=Time(125) D=Name(280) E=Price(125) F=Payment(225) G=Status(225)
+  // H=Tips(125) I=Late(125) J=Notes(280) K=Service(125) L=CachedName(300) M=ClientID(125) N=EventID(300) O=spacer(20)
+  const widths = [20, 125, 125, 280, 125, 225, 225, 125, 125, 280, 125, 300, 125, 300, 20];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
   // Hide internal columns: L=CachedName(12) M=ClientID(13) N=EventID(14)
@@ -1293,11 +1293,15 @@ function formatAppointments_(sheet, COLORS) {
   sheet.getRange(HEADER_ROW, 2, 1, 11).setFontSize(18); // header labels B-L
 
   // Hero columns: Time (C=3) and Name (D=4)
-  sheet.getRange(DATA_ROW, 3, dataRows, 1).setFontSize(30).setFontWeight('bold');
+  sheet.getRange(DATA_ROW, 3, dataRows, 1).setFontSize(25).setFontWeight('bold');
   sheet.getRange(DATA_ROW, 4, dataRows, 1).setFontSize(30).setFontWeight('bold');
 
   // Date (B=2): slightly smaller
-  sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(20);
+  sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(18);
+
+  // Price (E=5) and Payment (F=6)
+  sheet.getRange(DATA_ROW, 5, dataRows, 1).setFontSize(25);
+  sheet.getRange(DATA_ROW, 6, dataRows, 1).setFontSize(23);
 
   // Secondary info: muted colour
   sheet.getRange(DATA_ROW, 10, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted); // Notes J=10
@@ -1341,11 +1345,11 @@ function formatClients_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // A=spacer(40) B=Name(300) C=FavService(300) D=LastVisit(150) E=SocialMedia(300) F=Notes(300)
-  // G=NoShow(150) H=Late(150) I=Referral(150) J=TotalVisits(150) K=TotalSpent(150)
-  // L=TotalTips(150) M=FirstVisit(150) N=ConsecutivePaid(150) O=VIP(150) P=DoNotCut(150)
-  // Q=ClientID(150) R=spacer(40)
-  const widths = [40, 300, 300, 150, 300, 300, 150, 150, 150, 150, 150, 150, 150, 150, 150, 150, 150, 40];
+  // A=spacer(20) B=Name(280) C=FavService(300) D=LastVisit(125) E=SocialMedia(300) F=Notes(280)
+  // G=NoShow(125) H=Late(125) I=Referral(125) J=TotalVisits(125) K=TotalSpent(125)
+  // L=TotalTips(125) M=FirstVisit(125) N=ConsecutivePaid(125) O=VIP(125) P=DoNotCut(125)
+  // Q=ClientID(125) R=spacer(20)
+  const widths = [20, 280, 300, 125, 300, 280, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 20];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
   // Hide: I=Referral(9), Q=ClientID(17)
@@ -1402,8 +1406,8 @@ function formatServices_(sheet, COLORS) {
   if (!sheet) return;
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // A=spacer(40) B=Service(150) C=Price(150) D=spacer(40)
-  [40, 150, 150, 40].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+  // A=spacer(20) B=Service(125) C=Price(125) D=spacer(20)
+  [20, 125, 125, 20].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
   const maxRows = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
@@ -1425,9 +1429,9 @@ function formatSubscriptions_(sheet, COLORS) {
   if (!sheet) return;
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // A=spacer(40) B=Name(300) C=Price(150) D=Type(300) E=Expiry(150) F=Credits(150)
-  // G=Status(150) H=Notes(300) I=StartDate(150) J=ClientID(150) K=spacer(40)
-  const widths = [40, 300, 150, 300, 150, 150, 150, 300, 150, 150, 40];
+  // A=spacer(20) B=Name(280) C=Price(125) D=Type(300) E=Expiry(125) F=Credits(125)
+  // G=Status(125) H=Notes(280) I=StartDate(125) J=ClientID(125) K=spacer(20)
+  const widths = [20, 280, 125, 300, 125, 125, 125, 280, 125, 125, 20];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
   const maxRows = sheet.getMaxRows();
