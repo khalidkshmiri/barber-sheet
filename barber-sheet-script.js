@@ -532,9 +532,11 @@ function sortAndHideAppointments_(sheet) {
 
   // Sort data rows (starting at DATA_ROW, from col B). Column numbers are relative to the range.
   // Column 1 of range = col B = Date, Column 2 = col C = Time.
-  sheet.getRange(DATA_ROW, 2, lastRow - 2, sheet.getLastColumn() - 1).sort([
-    { column: 1, ascending: false },
-    { column: 2, ascending: false }
+  const numRows = lastRow - DATA_ROW + 1;
+  const numCols = Math.max(1, sheet.getLastColumn() - 1); // cols B onward
+  sheet.getRange(DATA_ROW, 2, numRows, numCols).sort([
+    { column: 2, ascending: false }, // col B = Date (absolute column number)
+    { column: 3, ascending: false }  // col C = Time (absolute column number)
   ]);
 
   // Read just the Date column (col B) to determine which rows to hide
@@ -592,8 +594,8 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
 
   const newLastRow = subsSheet.getLastRow();
   if (newLastRow >= DATA_ROW) {
-    // Sort by StartDate (col I = column 8 within range starting at col B)
-    subsSheet.getRange(DATA_ROW, 2, newLastRow - 2, 9).sort({ column: 8, ascending: false });
+    // Sort by StartDate (col I = absolute column 9)
+    subsSheet.getRange(DATA_ROW, 2, newLastRow - 2, 9).sort({ column: 9, ascending: false });
   }
 
   const entry = { start: startDate };
