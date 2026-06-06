@@ -12,7 +12,7 @@ A Google Apps Script for a barber business management system. The single script 
 
 **Mobile zoom level:** The sheet is used at **25% zoom (maximum zoom-out) on iPhone 16 Pro Max**. All sizing decisions must be based on this. At 25% zoom: visible sheet width ≈ 1720px, visible sheet height ≈ 3000px. Design target: ~10 data rows visible at once.
 
-**Row heights:** Header row = 150px. Data rows = 280px (`setRowHeightsForced(..., 280)`). 26px, 44px, and 64px are all confirmed too small at 25% zoom.
+**Row heights:** Header row = 320px. Data rows = 280px (`setRowHeightsForced(..., 280)`). Header is intentionally taller than data rows so it reads as a clear section label. 26px, 44px, and 64px are all confirmed too small at 25% zoom.
 
 **Column widths:** Visible columns in Appointments (A–J) should total ~1720px. Visible columns in Clients should also total ~1720px across the 9 non-hidden columns.
 
@@ -31,13 +31,23 @@ Syntax checking: `node --check barber-sheet-script.js`
 
 Four sheets: **Appointments**, **Clients**, **Services**, **Subscriptions**
 
-**Appointments columns (1-based):**
-A=Date, B=Time, C=Name (XLOOKUP formula), D=Price, E=Payment, F=Status, G=Tips, H=Late (checkbox), I=Notes, J=Service, K=ClientID, L=EventID (iCalUID), M=CachedName (fallback for XLOOKUP)
+**Column layout:** Row 1 and column A are spacers. Tables start at B2. Column order is flexible — the script discovers positions from the header names in row 2 at runtime. Reordering columns only requires updating the spreadsheet headers, no code changes needed.
 
-**Clients columns (1-based):**
-A=Name, B=FavService, C=LastVisit, D=SocialMedia, E=Notes, F=NoShow(12m), G=Late(12m), H=Referral, I=TotalVisits, J=TotalTips, K=TotalSpent, L=ClientID, M=FirstVisit, N=DoNotCut (checkbox), O=ConsecutivePaid (auto), P=VIP (checkbox)
+**Appointments header names (row 2):**
+`Date` · `Time` · `Name` · `Price` · `Payment` · `Status` · `Tips` · `Late` · `Notes` · `Service` · `ClientID` · `EventID` · `Cached Name`
 
-**Locale:** Dutch — Google Sheets formulas use **semicolons** as separators, not commas. Example: `=XLOOKUP(K2; Clients!L:L; Clients!A:A; M2)`
+Hidden columns: `ClientID`, `EventID`, `Cached Name`
+
+**Clients header names (row 2):**
+`Name` · `Favourite Service` · `Last Visit` · `Social Media` · `Notes` · `No Show` · `Late` · `Referral` · `Total Visits` · `Total Tips` · `Total Spent` · `ClientID` · `First Visit` · `Do Not Cut` · `Consecutive Paid` · `VIP`
+
+Hidden columns: `Social Media`, `Referral`, `Total Visits`, `Total Tips`, `Total Spent`, `ClientID`, `First Visit`
+
+**Services header names (row 2):** `Service` · `Price`
+
+**Subscriptions header names (row 2):** `Name` · `Price` · `Type` · `Start Date` · `Credits` · `Status` · `Expiry` · `Notes` · `ClientID`
+
+**Locale:** Dutch — Google Sheets formulas use **semicolons** as separators, not commas. Example: `=XLOOKUP(L3; Clients!M:M; Clients!B:B; N3)`
 
 ## Architecture
 
@@ -45,7 +55,7 @@ A=Name, B=FavService, C=LastVisit, D=SocialMedia, E=Notes, F=NoShow(12m), G=Late
 
 Calendar event title format: `ClientName - Service` (e.g. `Ibrahim - Haircut`)
 
-**iCalUID vs opaque ID (critical):** `CalendarApp.event.getId()` returns iCalUID (`abc123@google.com`). The Calendar REST API's `item.id` returns an opaque ID (`abc123`). These differ for the same event. The sheet always stores iCalUID in col L. Incremental sync must use `item.iCalUID` (not `item.id`) — this was a bug that caused duplicate rows; it is fixed.
+**iCalUID vs opaque ID (critical):** `CalendarApp.event.getId()` returns iCalUID (`abc123@google.com`). The Calendar REST API's `item.id` returns an opaque ID (`abc123`). These differ for the same event. The sheet always stores iCalUID in the `EventID` column. Incremental sync must use `item.iCalUID` (not `item.id`) — this was a bug that caused duplicate rows; it is fixed.
 
 **Three sync paths:**
 
@@ -64,9 +74,9 @@ When service is "Monthly Subscription": sets `serviceToWrite = "Haircut"`, price
 This is an **installable trigger** (not a simple `onEdit`). It handles:
 
 - Dashboard C3 checkbox → triggers `syncCalendarIncremental_()` + sends a Telegram confirmation
-- Appointments col E (Payment) change → auto-sets Status and Price. Valid payment values: Cash, Tikkie, Subscription, Free
-- Appointments col F (Status) change → No Show/Cancelled clears Late checkbox; Free-\* sets price to €0
-- Clients col A → auto-formats name to Title Case
+- Appointments `Payment` change → auto-sets Status and Price. Valid payment values: Cash, Tikkie, Subscription, Free
+- Appointments `Status` change → No Show/Cancelled clears Late checkbox; Free-\* sets price to €0
+- Clients `Name` column → auto-formats name to Title Case
 
 **Payment = "Free"** sets price → 0, status → "Paid", and counts toward the consecutive paid streak.
 
@@ -77,9 +87,9 @@ Script Properties store `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Two notific
 - `sendDailyNotification()` — called by 9 PM daily trigger; shows tomorrow's appointments, today's unpaid, unreliable client alerts
 - `sendSyncNotification_(ctx, newEventIds)` — fires immediately when new appointments are added during sync
 
-Reliability badges based on combined NoShow + Late count from Clients sheet: ⛔ DO NOT CUT (col N checkbox), ⚠️ Unreliable (3+), 🟡 Watch (1–2), ✅ Reliable (0).
+Reliability badges based on combined `No Show` + `Late` count from Clients sheet: ⛔ DO NOT CUT (`Do Not Cut` checkbox), ⚠️ Unreliable (3+), 🟡 Watch (1–2), ✅ Reliable (0).
 
-Consecutive paid streak (col O) resets on No Show or Late checkbox; at 5+ shows "✅ ELIGIBLE FOR FREE" in notifications.
+Consecutive paid streak (`Consecutive Paid`) resets on No Show or Late checkbox; at 5+ shows "✅ ELIGIBLE FOR FREE" in notifications.
 
 ## Key Functions Reference
 
@@ -91,8 +101,8 @@ Consecutive paid streak (col O) resets on No Show or Late checkbox; at 5+ shows 
 | `processSheetChanges(e)`            | Installable onEdit handler                                           |
 | `sendTelegramNotification_()`       | Full daily notification                                              |
 | `sendSyncNotification_(ctx, ids)`   | Immediate notification for new appointments                          |
-| `updateConsecutivePaidCounts_(ctx)` | Recalculates col O streaks for all clients                           |
-| `updateNoShowLateCounts_(ctx)`      | Recalculates col F (NoShow 12m) and col G (Late 12m) for all clients |
+| `updateConsecutivePaidCounts_(ctx)` | Recalculates `Consecutive Paid` streaks for all clients              |
+| `updateNoShowLateCounts_(ctx)`      | Recalculates `No Show` and `Late` counts (12m) for all clients       |
 | `setupTriggers()`                   | Installs onEdit + 5-min sync triggers in one click                   |
 | `setupOnOpenSync()`                 | Installs installable onOpen trigger for sync on sheet open           |
 | `validateSetup()`                   | Checks calendar, sheets, Telegram credentials, and triggers          |
@@ -114,7 +124,7 @@ Run these from the Apps Script editor dropdown:
 - `syncThisYear` — syncs entire current calendar year
 - `setupNotificationTrigger` / `removeNotificationTrigger` — manage 9 PM daily trigger
 - `setupIncrementalSync` / `removeIncrementalSync` — manage 5-min trigger
-- `runMigration` — one-time migration to populate col M (CachedName)
+- `runMigration` — one-time migration to populate the `Cached Name` column
 - `cleanupDuplicates` — removes duplicate rows safely
 - `testTelegramAPI` — tests Telegram bot connection
 - `debugTomorrow` — logs tomorrow's appointments to console
