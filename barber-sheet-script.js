@@ -1406,8 +1406,8 @@ function formatServices_(sheet, COLORS) {
   if (!sheet) return;
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // A=spacer(20) B=Service(125) C=Price(125) D=spacer(20)
-  [20, 125, 125, 20].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+  // A=spacer(20) B=Service(300) C=Price(300) D=spacer(20)
+  [20, 300, 300, 20].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
   const maxRows = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
