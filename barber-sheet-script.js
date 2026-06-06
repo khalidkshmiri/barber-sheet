@@ -1429,20 +1429,47 @@ function formatSubscriptions_(sheet, COLORS) {
   if (!sheet) return;
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // A=spacer(20) B=Name(280) C=Price(125) D=Type(300) E=Expiry(125) F=Credits(125)
-  // G=Status(125) H=Notes(280) I=StartDate(125) J=ClientID(125) K=spacer(20)
-  const widths = [20, 280, 125, 300, 125, 125, 125, 280, 125, 125, 20];
+  // A=spacer(20) B=Name(280) C=Price(125) D=Type(160) E=Expiry(160) F=Credits(125)
+  // G=Status(230) H=Notes(280) I=StartDate(125) J=ClientID(125) K=spacer(20)
+  const widths = [20, 280, 125, 160, 160, 125, 230, 280, 125, 125, 20];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
   const maxRows = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
-  sheet.getRange(DATA_ROW, 2, dataRows, 9)
+  const dataRange = sheet.getRange(DATA_ROW, 2, dataRows, 9);
+
+  dataRange
     .setFontSize(26)
     .setVerticalAlignment('middle')
+    .setFontWeight('normal')
     .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
   sheet.getRange(HEADER_ROW, 2, 1, 9).setFontSize(18);
 
-  sheet.setConditionalFormatRules(baseRules);
+  // Per-column font sizes
+  sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(30).setFontWeight('bold'); // Name B=2
+  sheet.getRange(DATA_ROW, 3, dataRows, 1).setFontSize(25);                       // Price C=3
+  sheet.getRange(DATA_ROW, 4, dataRows, 1).setFontSize(25);                       // Type D=4
+  sheet.getRange(DATA_ROW, 5, dataRows, 1).setFontSize(20);                       // Expiry E=5
+  sheet.getRange(DATA_ROW, 7, dataRows, 1).setFontSize(25);                       // Status G=7
+  sheet.getRange(DATA_ROW, 9, dataRows, 1).setFontSize(20);                       // StartDate I=9
+
+  // Conditional formatting by Status (G=7)
+  const ruleDefs = [
+    { formula: `=$G${DATA_ROW}="Active"`,    bg: COLORS.tint.green,  fg: COLORS.accent.green  },
+    { formula: `=$G${DATA_ROW}="Expired"`,   bg: COLORS.tint.red,    fg: COLORS.accent.red    },
+    { formula: `=$G${DATA_ROW}="Completed"`, bg: COLORS.tint.blue,   fg: COLORS.accent.blue   },
+  ];
+
+  const rules = ruleDefs.map(r =>
+    SpreadsheetApp.newConditionalFormatRule()
+      .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, [r.formula])
+      .setBackground(r.bg)
+      .setFontColor(r.fg)
+      .setRanges([dataRange])
+      .build()
+  );
+
+  sheet.setConditionalFormatRules([...rules, ...baseRules]);
   sheet.setTabColor(COLORS.accent.orange);
 }
 
