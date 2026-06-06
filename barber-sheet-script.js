@@ -29,13 +29,17 @@ const DATA_ROW   = 3;  // first row that holds actual data
 // Appointments columns (1-based sheet column numbers, col A = spacer):
 // B=2 Date  C=3 Time  D=4 Name(formula)  E=5 Price  F=6 Payment
 // G=7 Status  H=8 Tips  I=9 Late  J=10 Notes  K=11 Service
-// L=12 ClientID  M=13 EventID  N=14 CachedName
+// L=12 CachedName  M=13 ClientID  N=14 EventID  O=15 spacer
 
 // Clients columns (1-based):
 // B=2 Name  C=3 FavService  D=4 LastVisit  E=5 SocialMedia  F=6 Notes
 // G=7 NoShow(12m)  H=8 Late(12m)  I=9 Referral  J=10 TotalVisits
-// K=11 TotalTips  L=12 TotalSpent  M=13 ClientID  N=14 FirstVisit
-// O=15 DoNotCut  P=16 ConsecutivePaid (auto)  Q=17 VIP
+// K=11 TotalSpent  L=12 TotalTips  M=13 FirstVisit  N=14 ConsecutivePaid
+// O=15 VIP  P=16 DoNotCut  Q=17 ClientID  R=18 spacer
+
+// Subscriptions columns (1-based):
+// B=2 Name  C=3 Price  D=4 Type  E=5 Expiry  F=6 Credits  G=7 Status
+// H=8 Notes  I=9 StartDate  J=10 ClientID  K=11 spacer
 
 /***************
  * MENU & TRIGGERS
@@ -115,9 +119,9 @@ function processSheetChanges(e) {
     }
 
     // C. Recalculate all client stats immediately when any stat-affecting column changes.
-    // Covers: E=Price, F=Payment, G=Status, H=Tips, I=Late, L=ClientID
+    // Covers: E=Price, F=Payment, G=Status, H=Tips, I=Late, M=ClientID
     const col = range.getColumn();
-    if (col === 5 || col === 6 || col === 7 || col === 8 || col === 9 || col === 12) {
+    if (col === 5 || col === 6 || col === 7 || col === 8 || col === 9 || col === 13) {
       const minCtx = {
         appointmentsSheet: sheet,
         clientsSheet: sheet.getParent().getSheetByName(CLIENTS_SHEET)
@@ -251,8 +255,7 @@ function upsertEvents_(events, ctx) {
       newRowsABC.push([dateCell, timeCell, ""]);
       newRowsDToM.push([
         price, payment, initialStatus, "", false,
-        event.getDescription() || "", serviceToWrite, clientId, eventId,
-        parsed.clientName
+        event.getDescription() || "", serviceToWrite, parsed.clientName, clientId, eventId
       ]);
 
       if (isSubscriptionSale) {
@@ -304,12 +307,12 @@ function upsertEvents_(events, ctx) {
           rowPrice = (isSubscriptionSale || hasCredits) ? 0 : (ctx.servicePrices[serviceLower] ?? rowPrice);
         }
 
-        // col D=4 Name formula; reading from col B so existingRow's L column = ClientID, N = CachedName
-        const nameFormula = `=XLOOKUP(L${existingRow}; Clients!M:M; Clients!B:B; N${existingRow})`;
+        // col D=4 Name formula; M=ClientID, L=CachedName fallback
+        const nameFormula = `=XLOOKUP(M${existingRow}; Clients!Q:Q; Clients!B:B; L${existingRow})`;
         ctx.appointmentsSheet.getRange(existingRow, 2, 1, 3).setValues([[dateCell, timeCell, nameFormula]]); // cols B-D
         ctx.appointmentsSheet.getRange(existingRow, 5).setValue(isSubscriptionSale ? 0 : rowPrice);          // col E = Price
         ctx.appointmentsSheet.getRange(existingRow, 10, 1, 5).setValues([[                                   // cols J-N
-          event.getDescription() || "", serviceToWrite, clientId, eventId, parsed.clientName
+          event.getDescription() || "", serviceToWrite, parsed.clientName, clientId, eventId
         ]]);
         updatedCount++;
       }
@@ -340,8 +343,8 @@ function upsertEvents_(events, ctx) {
     const startRow = ctx.appointmentsSheet.getLastRow() + 1;
     for (let i = 0; i < newRowsABC.length; i++) {
       const targetRow = startRow + i;
-      // L = ClientID, N = CachedName in the new column layout
-      newRowsABC[i][2] = `=XLOOKUP(L${targetRow}; Clients!M:M; Clients!B:B; N${targetRow})`;
+      // M = ClientID, L = CachedName fallback
+      newRowsABC[i][2] = `=XLOOKUP(M${targetRow}; Clients!Q:Q; Clients!B:B; L${targetRow})`;
     }
     ctx.appointmentsSheet.getRange(startRow, 2, newRowsABC.length, 3).setValues(newRowsABC);   // cols B-D
     ctx.appointmentsSheet.getRange(startRow, 5, newRowsDToM.length, 10).setValues(newRowsDToM); // cols E-N
@@ -389,13 +392,13 @@ function updateConsecutivePaidCounts_(ctx, apptData) {
   const oVals = new Array(n);
 
   for (let i = 0; i < n; i++) {
-    const clientId = clientData[i][11]; // index 11 = col M = ClientID
+    const clientId = clientData[i][15]; // index 15 = col Q = ClientID
     if (!clientId) { oVals[i] = [0]; continue; }
 
     const clientAppts = [];
     for (const row of apptData) {
-      // index 10 = col L = ClientID in appointments
-      if (String(row[10]) === String(clientId)) {
+      // index 11 = col M = ClientID in appointments
+      if (String(row[11]) === String(clientId)) {
         clientAppts.push({ date: row[0], status: row[5], payment: row[4], late: row[7] });
       }
     }
@@ -411,11 +414,11 @@ function updateConsecutivePaidCounts_(ctx, apptData) {
     oVals[i] = [consecutivePaid];
   }
 
-  clientsSheet.getRange(DATA_ROW, 16, n, 1).setValues(oVals); // col P = ConsecutivePaid
+  clientsSheet.getRange(DATA_ROW, 14, n, 1).setValues(oVals); // col N = ConsecutivePaid
 }
 
 /**
- * Update TotalVisits (J=10), TotalTips (K=11), TotalSpent (L=12), LastVisit (D=4), FirstVisit (N=14)
+ * Update TotalVisits (J=10), TotalSpent (K=11), TotalTips (L=12), LastVisit (D=4), FirstVisit (M=13)
  * in Clients sheet.
  */
 function updateClientStats_(ctx, apptData) {
@@ -424,19 +427,19 @@ function updateClientStats_(ctx, apptData) {
   const clientLastRow = clientsSheet.getLastRow();
   if (clientLastRow < DATA_ROW) return;
 
-  // Read 12 cols starting at col B (cols B-M)
-  const clientData = clientsSheet.getRange(DATA_ROW, 2, clientLastRow - 2, 12).getValues();
+  // Read 16 cols starting at col B (cols B-Q) to reach ClientID at Q
+  const clientData = clientsSheet.getRange(DATA_ROW, 2, clientLastRow - 2, 16).getValues();
   if (!apptData) {
     const apptLastRow = apptSheet.getLastRow();
-    apptData = apptLastRow >= DATA_ROW ? apptSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 11).getValues() : [];
+    apptData = apptLastRow >= DATA_ROW ? apptSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 12).getValues() : [];
   }
 
   const lastVisits = [];   // col D = LastVisit
-  const ijkValues = [];    // cols J, K, L (TotalVisits, TotalTips, TotalSpent)
-  const firstVisits = [];  // col N = FirstVisit
+  const ijkValues = [];    // cols J, K, L (TotalVisits, TotalSpent, TotalTips)
+  const firstVisits = [];  // col M = FirstVisit
 
   for (let i = 0; i < clientData.length; i++) {
-    const clientId = clientData[i][11]; // index 11 = col M = ClientID
+    const clientId = clientData[i][15]; // index 15 = col Q = ClientID
     if (!clientId) {
       lastVisits.push([""]);
       ijkValues.push([0, 0, 0]);
@@ -448,7 +451,7 @@ function updateClientStats_(ctx, apptData) {
     let firstVisit = null, lastVisit = null;
 
     for (const row of apptData) {
-      if (String(row[10]) !== String(clientId)) continue; // index 10 = col L = ClientID
+      if (String(row[11]) !== String(clientId)) continue; // index 11 = col M = ClientID
 
       const payment = String(row[4] || "");  // index 4 = col F = Payment
       const status  = String(row[5] || "");  // index 5 = col G = Status
@@ -472,14 +475,14 @@ function updateClientStats_(ctx, apptData) {
     }
 
     lastVisits.push([lastVisit  || ""]);
-    ijkValues.push([totalVisits, totalTips, totalSpent]);
+    ijkValues.push([totalVisits, totalSpent, totalTips]); // K=TotalSpent, L=TotalTips
     firstVisits.push([firstVisit || ""]);
   }
 
   const n = clientData.length;
   clientsSheet.getRange(DATA_ROW, 4,  n, 1).setValues(lastVisits);  // col D = LastVisit
   clientsSheet.getRange(DATA_ROW, 10, n, 3).setValues(ijkValues);   // cols J, K, L
-  clientsSheet.getRange(DATA_ROW, 14, n, 1).setValues(firstVisits); // col N = FirstVisit
+  clientsSheet.getRange(DATA_ROW, 13, n, 1).setValues(firstVisits); // col M = FirstVisit
 }
 
 /**
@@ -494,24 +497,24 @@ function updateNoShowLateCounts_(ctx, apptData) {
   if (!apptData) {
     const apptLastRow = apptSheet.getLastRow();
     if (apptLastRow < DATA_ROW) return;
-    apptData = apptSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 11).getValues();
+    apptData = apptSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 12).getValues();
   }
 
   const cutoff = new Date();
   cutoff.setFullYear(cutoff.getFullYear() - 1);
 
-  // Read 12 cols from col B (B-M)
-  const clientData = clientsSheet.getRange(DATA_ROW, 2, clientLastRow - 2, 12).getValues();
+  // Read 16 cols from col B (B-Q) to reach ClientID at Q
+  const clientData = clientsSheet.getRange(DATA_ROW, 2, clientLastRow - 2, 16).getValues();
   const n = clientData.length;
   const fgVals = new Array(n);
 
   for (let i = 0; i < n; i++) {
-    const clientId = clientData[i][11]; // index 11 = col M = ClientID
+    const clientId = clientData[i][15]; // index 15 = col Q = ClientID
     if (!clientId) { fgVals[i] = [0, 0]; continue; }
 
     let noShows = 0, lates = 0;
     for (const row of apptData) {
-      if (String(row[10]) !== String(clientId)) continue; // index 10 = col L = ClientID
+      if (String(row[11]) !== String(clientId)) continue; // index 11 = col M = ClientID
       const dateVal = row[0];
       if (!dateVal || new Date(dateVal) < cutoff) continue;
       if (row[5] === "No Show") noShows++; // index 5 = col G = Status
@@ -568,28 +571,29 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
     // Check last ~20 rows to avoid duplicate subscription entries
     const checkStart = Math.max(DATA_ROW, lastRow - 20);
     const checkCount = lastRow - checkStart + 1;
-    const checkRange = subsSheet.getRange(checkStart, 2, checkCount, 4).getValues();
+    const checkRange = subsSheet.getRange(checkStart, 2, checkCount, 8).getValues();
     const startYMD = ymd_(startDate instanceof Date ? startDate : new Date(startDate), ctx.calTz);
     for (const r of checkRange) {
-      if (nameCase_(r[0]) === name && r[3] && ymd_(new Date(r[3]), ctx.calTz) === startYMD) return;
+      // index 7 = col I = StartDate
+      if (nameCase_(r[0]) === name && r[7] && ymd_(new Date(r[7]), ctx.calTz) === startYMD) return;
     }
   }
 
   const r = lastRow + 1;
   // ClientID is in col J of Subscriptions (index 8 of the 9-col data, col B=Name through J=ClientID)
-  // Clients!M:M = ClientID, Clients!B:B = Name
-  const nameFormula = `=XLOOKUP(J${r}; Clients!M:M; Clients!B:B; "")`;
-  // Subscriptions layout (starting col B): B=Name C=Price D=? E=StartDate F=Credits G=Status H=Expiry I=? J=ClientID
-  // E${r}=StartDate, H${r}=Expiry; Appointments cols: $L:$L=ClientID, $F:$F=Payment, $G:$G=Status, $B:$B=Date
-  const creditsFormula = `=MAX(0; 4 - COUNTIFS(Appointments!$L:$L; J${r}; Appointments!$F:$F; "Subscription"; Appointments!$G:$G; "Paid"; Appointments!$B:$B; ">="&E${r}; Appointments!$B:$B; "<="&(H${r} + 21)))`;
+  // Clients!Q:Q = ClientID, Clients!B:B = Name
+  const nameFormula = `=XLOOKUP(J${r}; Clients!Q:Q; Clients!B:B; "")`;
+  // Subscriptions layout (starting col B): B=Name C=Price D=Type E=Expiry F=Credits G=Status H=Notes I=StartDate J=ClientID
+  // I${r}=StartDate, E${r}=Expiry; Appointments cols: $M:$M=ClientID, $F:$F=Payment, $G:$G=Status, $B:$B=Date
+  const creditsFormula = `=MAX(0; 4 - COUNTIFS(Appointments!$M:$M; J${r}; Appointments!$F:$F; "Subscription"; Appointments!$G:$G; "Paid"; Appointments!$B:$B; ">="&I${r}; Appointments!$B:$B; "<="&(E${r} + 21)))`;
 
-  // Write to cols B-J (9 columns, starting at col 2) — col A is the spacer
-  subsSheet.getRange(r, 2, 1, 9).setValues([[nameFormula, monthlyPrice, "", startDate, creditsFormula, "Active", addDays_(startDate, 31), "", clientId]]);
+  // Write to cols B-J: Name, Price, Type, Expiry, Credits, Status, Notes, StartDate, ClientID
+  subsSheet.getRange(r, 2, 1, 9).setValues([[nameFormula, monthlyPrice, "", addDays_(startDate, 31), creditsFormula, "Active", "", startDate, clientId]]);
 
   const newLastRow = subsSheet.getLastRow();
   if (newLastRow >= DATA_ROW) {
-    // Sort by StartDate (col E = column 4 within range starting at col B)
-    subsSheet.getRange(DATA_ROW, 2, newLastRow - 2, 9).sort({ column: 4, ascending: false });
+    // Sort by StartDate (col I = column 8 within range starting at col B)
+    subsSheet.getRange(DATA_ROW, 2, newLastRow - 2, 9).sort({ column: 8, ascending: false });
   }
 
   const entry = { start: startDate };
@@ -607,9 +611,9 @@ function runMigration() {
 
   if (lastRow < DATA_ROW) { safeAlert_("No appointment data to migrate."); return; }
 
-  // Ensure col N header exists (CachedName, col 14)
-  if (!sheet.getRange(HEADER_ROW, 14).getValue()) {
-    sheet.getRange(HEADER_ROW, 14).setValue("Cached Name");
+  // Ensure col L header exists (CachedName, col 12)
+  if (!sheet.getRange(HEADER_ROW, 12).getValue()) {
+    sheet.getRange(HEADER_ROW, 12).setValue("Cached Name");
   }
 
   // Read 13 cols from col B (B-N)
@@ -620,17 +624,17 @@ function runMigration() {
   for (let i = 0; i < data.length; i++) {
     const row = i + DATA_ROW;
     const currentName = String(data[i][2] || "");   // index 2 = col D = Name
-    const existingCache = String(data[i][12] || ""); // index 12 = col N = CachedName
+    const existingCache = String(data[i][10] || ""); // index 10 = col L = CachedName
 
     cachedNames.push([existingCache || currentName]);
-    // L = ClientID, N = CachedName in new layout
-    updatedFormulas.push([`=XLOOKUP(L${row}; Clients!M:M; Clients!B:B; N${row})`]);
+    // M = ClientID, L = CachedName fallback
+    updatedFormulas.push([`=XLOOKUP(M${row}; Clients!Q:Q; Clients!B:B; L${row})`]);
   }
 
-  sheet.getRange(DATA_ROW, 14, cachedNames.length, 1).setValues(cachedNames);   // col N = CachedName
+  sheet.getRange(DATA_ROW, 12, cachedNames.length, 1).setValues(cachedNames);   // col L = CachedName
   sheet.getRange(DATA_ROW, 4, updatedFormulas.length, 1).setFormulas(updatedFormulas); // col D = Name formula
 
-  safeAlert_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide column N (right-click column N header → Hide column).`);
+  safeAlert_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide columns L, M, N (right-click → Hide column).`);
 }
 
 /***************
@@ -673,11 +677,11 @@ function loadClientsIndex_(sheet) {
   let maxId = 0;
   const lastRow = sheet.getLastRow();
   if (lastRow < DATA_ROW) return { map, maxId };
-  // Read 12 cols from col B (B-M): index 0=Name, index 11=ClientID
-  const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 12).getValues();
+  // Read 16 cols from col B (B-Q): index 0=Name, index 15=ClientID
+  const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 16).getValues();
   for (let i = 0; i < data.length; i++) {
     const name = nameCase_(data[i][0]);   // index 0 = col B = Name
-    const id = data[i][11];               // index 11 = col M = ClientID
+    const id = data[i][15];               // index 15 = col Q = ClientID
     if (name) map.set(name, id);
     const n = parseInt(id, 10);
     if (!isNaN(n) && n > maxId) maxId = n;
@@ -691,11 +695,11 @@ function getOrCreateClientId_(sheet, idx, name) {
 
   idx.maxId += 1;
   const newRow = sheet.getLastRow() + 1;
-  if (sheet.getMaxColumns() < 18) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), 18 - sheet.getMaxColumns());
+  if (sheet.getMaxColumns() < 19) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), 19 - sheet.getMaxColumns());
   }
   sheet.getRange(newRow, 2).setValue(formatted);   // col B = Name
-  sheet.getRange(newRow, 13).setValue(idx.maxId);  // col M = ClientID
+  sheet.getRange(newRow, 17).setValue(idx.maxId);  // col Q = ClientID
   idx.map.set(formatted, idx.maxId);
   return idx.maxId;
 }
@@ -704,19 +708,19 @@ function loadActiveSubscriptionsIndex_(sheet) {
   const today = startOfDay_(new Date());
   const lastRow = sheet.getLastRow();
   if (lastRow < DATA_ROW) return { byId: new Map(), byName: new Map() };
-  // Subscriptions layout from col B: B=Name(0) C=Price(1) D=?(2) E=StartDate(3) F=Credits(4) G=Status(5) H=Expiry(6) I=?(7) J=ClientID(8)
+  // Subscriptions layout from col B: B=Name(0) C=Price(1) D=Type(2) E=Expiry(3) F=Credits(4) G=Status(5) H=Notes(6) I=StartDate(7) J=ClientID(8)
   const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 9).getValues();
   const byId = new Map(), byName = new Map();
   for (let i = 0; i < data.length; i++) {
     const name     = data[i][0]; // col B = Name
     const credits  = data[i][4]; // col F = Credits
     const status   = data[i][5]; // col G = Status
-    const expiryRaw = data[i][6]; // col H = Expiry
+    const expiryRaw = data[i][3]; // col E = Expiry
     const clientId = data[i][8]; // col J = ClientID
     const expiry = expiryRaw ? new Date(expiryRaw) : null;
     if (status !== "Active" || !expiry || expiry < today) continue;
     if (credits !== "" && Number(credits) <= 0) continue;
-    const entry = { start: data[i][3] ? new Date(data[i][3]) : new Date(0) }; // col E = StartDate
+    const entry = { start: data[i][7] ? new Date(data[i][7]) : new Date(0) }; // col I = StartDate
     if (clientId) byId.set(String(clientId), entry);
     if (name && !String(name).startsWith("=")) byName.set(nameCase_(name), entry);
   }
@@ -731,10 +735,10 @@ function loadAppointmentEventIdIndex_(sheet) {
   const map = new Map();
   const lastRow = sheet.getLastRow();
   if (lastRow < DATA_ROW) return map;
-  // Read 13 cols from col B (B-N): index 11=EventID (col M), index 10=ClientID (col L)
+  // Read 13 cols from col B (B-N): index 12=EventID (col N), index 11=ClientID (col M)
   const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
   for (let i = 0; i < data.length; i++) {
-    const eventId = data[i][11]; // index 11 = col M = EventID
+    const eventId = data[i][12]; // index 12 = col N = EventID
     if (eventId) map.set(String(eventId), { row: i + DATA_ROW, data: data[i] });
   }
   return map;
@@ -1007,7 +1011,7 @@ function syncCalendarIncremental_() {
         // New appointment
         newRowsABC.push([dateCell, timeCell, ""]);
         newRowsDToM.push([price, payment, initialStatus, "", false,
-          item.description || "", serviceToWrite, clientId, eventId, parsed.clientName]);
+          item.description || "", serviceToWrite, parsed.clientName, clientId, eventId]);
         if (isSubSale) createSubscriptionEntry_(ctx, parsed.clientName, clientId, dateCell);
         ctx.apptIndex.set(eventId, -1);
         newEventIds.add(eventId);
@@ -1024,10 +1028,10 @@ function syncCalendarIncremental_() {
                             (item.description || "") !== String(rowVals[8] || "") ||
                             serviceToWrite !== String(rowVals[9] || "");
         if (changed) {
-          const formula = `=XLOOKUP(L${existingRow}; Clients!M:M; Clients!B:B; N${existingRow})`;
+          const formula = `=XLOOKUP(M${existingRow}; Clients!Q:Q; Clients!B:B; L${existingRow})`;
           apptSheet.getRange(existingRow, 2, 1, 3).setValues([[dateCell, timeCell, formula]]); // cols B-D
           apptSheet.getRange(existingRow, 10, 1, 5).setValues([[                               // cols J-N
-            item.description || "", serviceToWrite, clientId, eventId, parsed.clientName
+            item.description || "", serviceToWrite, parsed.clientName, clientId, eventId
           ]]);
         }
       }
@@ -1038,7 +1042,7 @@ function syncCalendarIncremental_() {
       const startRow = apptSheet.getLastRow() + 1;
       for (let i = 0; i < newRowsABC.length; i++) {
         const r = startRow + i;
-        newRowsABC[i][2] = `=XLOOKUP(L${r}; Clients!M:M; Clients!B:B; N${r})`;
+        newRowsABC[i][2] = `=XLOOKUP(M${r}; Clients!Q:Q; Clients!B:B; L${r})`;
       }
       apptSheet.getRange(startRow, 2, newRowsABC.length, 3).setValues(newRowsABC);   // cols B-D
       apptSheet.getRange(startRow, 5, newRowsDToM.length, 10).setValues(newRowsDToM); // cols E-N
@@ -1081,7 +1085,7 @@ function cleanupDuplicates() {
     const row     = data[i];
     const dateStr = row[0] ? new Date(row[0]).toDateString() : ""; // index 0 = col B = Date
     const timeStr = row[1] ? String(row[1]) : "";                  // index 1 = col C = Time
-    const name    = String(row[2] || row[12] || "").trim().toLowerCase(); // col D=Name, col N=CachedName
+    const name    = String(row[2] || row[10] || "").trim().toLowerCase(); // col D=Name, col L=CachedName
     const payment = String(row[4] || "").trim(); // index 4 = col F = Payment
     const status  = String(row[5] || "").trim(); // index 5 = col G = Status
 
@@ -1210,11 +1214,10 @@ function applyBaseTheme_(sheet, COLORS) {
   // Freeze both the spacer row and the header row so they stay visible while scrolling
   sheet.setFrozenRows(HEADER_ROW);
 
-  // Row 1 = spacer: keep slim. Row 2 = header: tall so it reads as a clear label at 25% zoom.
   sheet.setRowHeight(1, 20);
-  sheet.setRowHeight(HEADER_ROW, 320);
+  sheet.setRowHeight(HEADER_ROW, 150);
   if (maxRows > HEADER_ROW) {
-    sheet.setRowHeightsForced(DATA_ROW, maxRows - DATA_ROW + 1, 280);
+    sheet.setRowHeightsForced(DATA_ROW, maxRows - DATA_ROW + 1, 260);
   }
 
   // Alternating row rule — applied only to data rows, lowest priority so status colors win
@@ -1229,41 +1232,40 @@ function applyBaseTheme_(sheet, COLORS) {
 
 /**
  * Formats the Appointments sheet.
- * Cols (after spacer A): B=Date C=Time D=Name E=Price F=Payment G=Status H=Tips I=Late J=Notes K=Service L=ClientID M=EventID N=CachedName
+ * Cols: A=spacer B=Date C=Time D=Name E=Price F=Payment G=Status H=Tips I=Late J=Notes K=Service
+ *       L=CachedName(hidden) M=ClientID(hidden) N=EventID(hidden) O=spacer
  */
 function formatAppointments_(sheet, COLORS) {
   if (!sheet) return;
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // Col A = spacer (20). Then B-K visible, L-N hidden.
-  // B=Date(140) C=Time(110) D=Name(290) E=Price(110) F=Payment(185) G=Status(155)
-  // H=Tips(110) I=Late(90) J=Notes(240) K=Service(210) → visible total ~1640px
-  const widths = [20, 140, 110, 290, 110, 185, 155, 110, 90, 240, 210, 80, 80, 80];
+  // A=spacer(40) B=Date(150) C=Time(150) D=Name(300) E=Price(150) F=Payment(200) G=Status(200)
+  // H=Tips(150) I=Late(150) J=Notes(150) K=Service(150) L=CachedName(300) M=ClientID(150) N=EventID(300) O=spacer(40)
+  const widths = [40, 150, 150, 300, 150, 200, 200, 150, 150, 150, 150, 300, 150, 300, 40];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
-  // Hide internal columns: L=ClientID(12) M=EventID(13) N=CachedName(14)
+  // Hide internal columns: L=CachedName(12) M=ClientID(13) N=EventID(14)
   sheet.hideColumns(12, 3);
 
   const maxRows = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
-  // Data range starts at B3 (col 2, row DATA_ROW), 13 columns wide (B-N)
+  // Data range: B3 (col 2, row DATA_ROW), 13 cols wide (B-N)
   const dataRange = sheet.getRange(DATA_ROW, 2, dataRows, 13);
 
-  // Typography — CLIP stops text wrapping; sizes target ~10-12pt visible at 25% zoom
   dataRange
     .setFontSize(26)
     .setVerticalAlignment('middle')
     .setFontWeight('normal')
-    .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
 
-  sheet.getRange(HEADER_ROW, 2, 1, 10).setFontSize(18); // header labels B-K
+  sheet.getRange(HEADER_ROW, 2, 1, 11).setFontSize(18); // header labels B-L
 
-  // Hero columns: Time (C=3) and Name (D=4) — bold for visual hierarchy
-  sheet.getRange(DATA_ROW, 3, dataRows, 1).setFontSize(30).setFontWeight('bold'); // Time
-  sheet.getRange(DATA_ROW, 4, dataRows, 1).setFontSize(30).setFontWeight('bold').setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP); // Name
+  // Hero columns: Time (C=3) and Name (D=4)
+  sheet.getRange(DATA_ROW, 3, dataRows, 1).setFontSize(30).setFontWeight('bold');
+  sheet.getRange(DATA_ROW, 4, dataRows, 1).setFontSize(30).setFontWeight('bold');
 
-  // Date (B=2): slightly smaller so the full date fits without clipping
+  // Date (B=2): slightly smaller
   sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(20);
 
   // Secondary info: muted colour
@@ -1274,17 +1276,14 @@ function formatAppointments_(sheet, COLORS) {
   const centred = [2, 3, 5, 6, 7, 8, 9]; // Date, Time, Price, Payment, Status, Tips, Late
   centred.forEach(col => sheet.getRange(DATA_ROW, col, dataRows, 1).setHorizontalAlignment('center'));
 
-  // Conditional format rules (index 0 = highest priority)
-  // Formula row reference uses DATA_ROW (3) since that's the first row of the applied range.
-  // Column letters reflect the new layout: I=Late, G=Status, F=Payment.
   const ruleDefs = [
-    { formula: `=$I${DATA_ROW}=TRUE`,              bg: COLORS.tint.orange, fg: COLORS.accent.orange }, // Late
-    { formula: `=$G${DATA_ROW}="No Show"`,         bg: COLORS.tint.red,    fg: COLORS.accent.red    },
-    { formula: `=$G${DATA_ROW}="Cancelled"`,       bg: COLORS.bg,          fg: COLORS.textMuted     },
-    { formula: `=$F${DATA_ROW}="Subscription"`,    bg: COLORS.tint.purple, fg: COLORS.accent.purple },
-    { formula: `=$G${DATA_ROW}="Paid"`,            bg: COLORS.tint.green,  fg: COLORS.accent.green  },
-    { formula: `=$G${DATA_ROW}="Upcoming"`,        bg: COLORS.tint.blue,   fg: COLORS.accent.blue   },
-    { formula: `=$G${DATA_ROW}="Not Paid"`,        bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },
+    { formula: `=$I${DATA_ROW}=TRUE`,           bg: COLORS.tint.orange, fg: COLORS.accent.orange }, // Late
+    { formula: `=$G${DATA_ROW}="No Show"`,      bg: COLORS.tint.red,    fg: COLORS.accent.red    },
+    { formula: `=$G${DATA_ROW}="Cancelled"`,    bg: COLORS.bg,          fg: COLORS.textMuted     },
+    { formula: `=$F${DATA_ROW}="Subscription"`, bg: COLORS.tint.purple, fg: COLORS.accent.purple },
+    { formula: `=$G${DATA_ROW}="Paid"`,         bg: COLORS.tint.green,  fg: COLORS.accent.green  },
+    { formula: `=$G${DATA_ROW}="Upcoming"`,     bg: COLORS.tint.blue,   fg: COLORS.accent.blue   },
+    { formula: `=$G${DATA_ROW}="Not Paid"`,     bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },
   ];
 
   const rules = ruleDefs.map(r =>
@@ -1302,43 +1301,43 @@ function formatAppointments_(sheet, COLORS) {
 
 /**
  * Formats the Clients sheet.
- * Cols (after spacer A): B=Name C=FavService D=LastVisit E=SocialMedia F=Notes G=NoShow H=Late
- *                        I=Referral J=TotalVisits K=TotalTips L=TotalSpent M=ClientID N=FirstVisit
- *                        O=DoNotCut P=ConsecutivePaid Q=VIP
+ * Cols: A=spacer B=Name C=FavService D=LastVisit E=SocialMedia F=Notes G=NoShow H=Late
+ *       I=Referral(hidden) J=TotalVisits K=TotalSpent L=TotalTips M=FirstVisit
+ *       N=ConsecutivePaid O=VIP P=DoNotCut Q=ClientID(hidden) R=spacer
  */
 function formatClients_(sheet, COLORS) {
   if (!sheet) return;
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // Col A = spacer (20). Visible after hiding: B C D F G H O P Q = 9 cols ~1620px
-  // A=spacer(20) B=Name(280) C=FavService(240) D=LastVisit(170) E=hidden(100) F=Notes(310)
-  // G=NoShow(140) H=Late(120) I-N=hidden(100ea) O=DoNotCut(130) P=Consec(130) Q=VIP(100)
-  const widths = [20, 280, 240, 170, 100, 310, 140, 120, 100, 100, 100, 100, 100, 100, 130, 130, 100];
+  // A=spacer(40) B=Name(300) C=FavService(300) D=LastVisit(150) E=SocialMedia(300) F=Notes(300)
+  // G=NoShow(150) H=Late(150) I=Referral(150) J=TotalVisits(150) K=TotalSpent(150)
+  // L=TotalTips(150) M=FirstVisit(150) N=ConsecutivePaid(150) O=VIP(150) P=DoNotCut(150)
+  // Q=ClientID(150) R=spacer(40)
+  const widths = [40, 300, 300, 150, 300, 300, 150, 150, 150, 150, 150, 150, 150, 150, 150, 150, 150, 40];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
-  // Hide: E=SocialMedia(5), I=Referral(9), J=TotalVisits(10), K=TotalTips(11),
-  //       L=TotalSpent(12), M=ClientID(13), N=FirstVisit(14)
-  sheet.hideColumns(5, 1);   // E SocialMedia
-  sheet.hideColumns(9, 6);   // I–N (Referral, TotalVisits, TotalTips, TotalSpent, ClientID, FirstVisit)
+  // Hide: I=Referral(9), Q=ClientID(17)
+  sheet.hideColumns(9, 1);   // I Referral
+  sheet.hideColumns(17, 1);  // Q ClientID
 
   const maxRows = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
-  // Data range: B3 (col 2, row DATA_ROW), 16 columns (B-Q)
+  // Data range: B3 (col 2, row DATA_ROW), 16 cols (B-Q)
   const dataRange = sheet.getRange(DATA_ROW, 2, dataRows, 16);
 
   dataRange
     .setFontSize(26)
     .setVerticalAlignment('middle')
     .setFontWeight('normal')
-    .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
   sheet.getRange(HEADER_ROW, 2, 1, 16).setFontSize(18);
 
   // Name (B=2) is the hero column
-  sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(30).setFontWeight('bold').setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(30).setFontWeight('bold');
 
-  // Centre-align: LastVisit(D=4), NoShow(G=7), Late(H=8), DoNotCut(O=15), Consec(P=16), VIP(Q=17)
-  [4, 7, 8, 15, 16, 17].forEach(col =>
+  // Centre-align: LastVisit(D=4), NoShow(G=7), Late(H=8), ConsecutivePaid(N=14), VIP(O=15), DoNotCut(P=16)
+  [4, 7, 8, 14, 15, 16].forEach(col =>
     sheet.getRange(DATA_ROW, col, dataRows, 1).setHorizontalAlignment('center')
   );
 
@@ -1346,9 +1345,9 @@ function formatClients_(sheet, COLORS) {
   sheet.getRange(DATA_ROW, 6, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted); // Notes F=6
 
   const ruleDefs = [
-    { formula: `=$O${DATA_ROW}=TRUE`,              bg: COLORS.tint.red,    fg: COLORS.accent.red    }, // DoNotCut O
+    { formula: `=$P${DATA_ROW}=TRUE`,              bg: COLORS.tint.red,    fg: COLORS.accent.red    }, // DoNotCut P=16
     { formula: `=$G${DATA_ROW}+$H${DATA_ROW}>=3`, bg: COLORS.tint.orange, fg: COLORS.accent.orange }, // NoShow+Late ≥ 3
-    { formula: `=$Q${DATA_ROW}=TRUE`,              bg: COLORS.tint.yellow, fg: COLORS.accent.yellow }, // VIP Q
+    { formula: `=$O${DATA_ROW}=TRUE`,              bg: COLORS.tint.yellow, fg: COLORS.accent.yellow }, // VIP O=15
   ];
 
   const rules = ruleDefs.map(r =>
@@ -1364,21 +1363,50 @@ function formatClients_(sheet, COLORS) {
   sheet.setTabColor(COLORS.accent.purple);
 }
 
-/** Formats the Services sheet. */
+/**
+ * Formats the Services sheet.
+ * Cols: A=spacer B=Service C=Price D=spacer
+ */
 function formatServices_(sheet, COLORS) {
   if (!sheet) return;
   const baseRules = applyBaseTheme_(sheet, COLORS);
-  sheet.setColumnWidth(1, 20);  // spacer col A
-  sheet.setColumnWidth(2, 150); // col B = ServiceName
-  sheet.setColumnWidth(3, 90);  // col C = Price
+
+  // A=spacer(40) B=Service(150) C=Price(150) D=spacer(40)
+  [40, 150, 150, 40].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+
+  const maxRows = sheet.getMaxRows();
+  const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
+  sheet.getRange(DATA_ROW, 2, dataRows, 2)
+    .setFontSize(26)
+    .setVerticalAlignment('middle')
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  sheet.getRange(HEADER_ROW, 2, 1, 2).setFontSize(18);
+
   sheet.setConditionalFormatRules(baseRules);
   sheet.setTabColor(COLORS.textMuted);
 }
 
-/** Formats the Subscriptions sheet. */
+/**
+ * Formats the Subscriptions sheet.
+ * Cols: A=spacer B=Name C=Price D=Type E=Expiry F=Credits G=Status H=Notes I=StartDate J=ClientID K=spacer
+ */
 function formatSubscriptions_(sheet, COLORS) {
   if (!sheet) return;
   const baseRules = applyBaseTheme_(sheet, COLORS);
+
+  // A=spacer(40) B=Name(300) C=Price(150) D=Type(300) E=Expiry(150) F=Credits(150)
+  // G=Status(150) H=Notes(300) I=StartDate(150) J=ClientID(150) K=spacer(40)
+  const widths = [40, 300, 150, 300, 150, 150, 150, 300, 150, 150, 40];
+  widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+
+  const maxRows = sheet.getMaxRows();
+  const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
+  sheet.getRange(DATA_ROW, 2, dataRows, 9)
+    .setFontSize(26)
+    .setVerticalAlignment('middle')
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  sheet.getRange(HEADER_ROW, 2, 1, 9).setFontSize(18);
+
   sheet.setConditionalFormatRules(baseRules);
   sheet.setTabColor(COLORS.accent.orange);
 }
