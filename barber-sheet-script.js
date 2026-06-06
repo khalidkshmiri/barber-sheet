@@ -41,6 +41,10 @@ const DATA_ROW   = 3;  // first row that holds actual data
 // B=2 Name  C=3 Price  D=4 Type  E=5 Expiry  F=6 Credits  G=7 Status
 // H=8 Notes  I=9 StartDate  J=10 ClientID  K=11 spacer
 
+// Auto-VIP thresholds (used in updateClientStats_)
+const VIP_MIN_VISITS = 15;  // total paid visits to earn VIP
+const VIP_MIN_SPENT  = 400; // total € spent to earn VIP
+
 /***************
  * MENU & TRIGGERS
  ***************/
@@ -163,9 +167,11 @@ function processSheetChanges(e) {
           sheet.getRange(row, 9).setValue(false); // col I = Late
         }
 
-        // If setting to Free, ensure Price = 0 (but keep Late checkbox)
+        // Unify Free-* → canonical state: Payment=Free, Status=Paid, Price=0
         if (statusVal.startsWith("Free")) {
-          sheet.getRange(row, 5).setValue(0); // col E = Price
+          sheet.getRange(row, 5).setValue(0);        // col E = Price
+          sheet.getRange(row, 6).setValue("Free");   // col F = Payment
+          sheet.getRange(row, 7).setValue("Paid");   // col G = Status
         }
       }
 
@@ -177,9 +183,14 @@ function processSheetChanges(e) {
           appointmentsSheet: sheet,
           clientsSheet: sheet.getParent().getSheetByName(CLIENTS_SHEET)
         };
-        updateClientStats_(minCtx);
-        updateNoShowLateCounts_(minCtx);
-        updateConsecutivePaidCounts_(minCtx);
+        // Read appointment data once and share across all three update functions
+        const apptLastRow = sheet.getLastRow();
+        const apptData = apptLastRow >= DATA_ROW
+          ? sheet.getRange(DATA_ROW, 2, apptLastRow - 2, 13).getValues()
+          : [];
+        updateClientStats_(minCtx, apptData);
+        updateNoShowLateCounts_(minCtx, apptData);
+        updateConsecutivePaidCounts_(minCtx, apptData);
       }
     }
 
@@ -492,6 +503,7 @@ function updateClientStats_(ctx, apptData) {
   const lastVisits = [];   // col D = LastVisit
   const ijkValues = [];    // cols J, K, L (TotalVisits, TotalSpent, TotalTips)
   const firstVisits = [];  // col M = FirstVisit
+  const vipValues = [];    // col O = VIP (auto-promoted, never demoted)
 
   for (let i = 0; i < clientData.length; i++) {
     const clientId = clientData[i][15]; // index 15 = col Q = ClientID
@@ -532,12 +544,18 @@ function updateClientStats_(ctx, apptData) {
     lastVisits.push([lastVisit  || ""]);
     ijkValues.push([totalVisits, totalSpent, totalTips]); // K=TotalSpent, L=TotalTips
     firstVisits.push([firstVisit || ""]);
+
+    // Auto-promote to VIP if thresholds met; never demote existing true
+    const currentVip = clientData[i][13]; // index 13 = col O = VIP (16 cols read from B)
+    const earnedVip  = totalVisits >= VIP_MIN_VISITS || totalSpent >= VIP_MIN_SPENT;
+    vipValues.push([currentVip === true || earnedVip]);
   }
 
   const n = clientData.length;
   clientsSheet.getRange(DATA_ROW, 4,  n, 1).setValues(lastVisits);  // col D = LastVisit
   clientsSheet.getRange(DATA_ROW, 10, n, 3).setValues(ijkValues);   // cols J, K, L
   clientsSheet.getRange(DATA_ROW, 13, n, 1).setValues(firstVisits); // col M = FirstVisit
+  clientsSheet.getRange(DATA_ROW, 15, n, 1).setValues(vipValues);   // col O = VIP
 }
 
 /**
@@ -841,6 +859,233 @@ function sendTelegramError_(message) {
       muteHttpExceptions: true
     });
   } catch (_) {}
+}
+
+/***************
+ * NOTIFICATIONS
+ ***************/
+
+// Core Telegram send — same pattern as sendTelegramError_ but for normal messages.
+function sendTelegramMessage_(text) {
+  try {
+    const props  = PropertiesService.getScriptProperties();
+    const token  = props.getProperty("TELEGRAM_BOT_TOKEN");
+    const chatId = props.getProperty("TELEGRAM_CHAT_ID");
+    if (!token || !chatId) { Logger.log("Telegram not configured"); return; }
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ chat_id: chatId, text: text, parse_mode: "HTML" }),
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    Logger.log("sendTelegramMessage_ error: " + e.message);
+  }
+}
+
+// Returns a reliability badge string based on client history.
+function reliabilityBadge_(noShow, late, doNotCut, consecutivePaid) {
+  if (doNotCut === true) return "⛔ DO NOT CUT";
+  const incidents = (Number(noShow) || 0) + (Number(late) || 0);
+  if (incidents >= 3) return "⚠️ Unreliable";
+  if (incidents >= 1) return "🟡 Watch";
+  return "✅ Reliable";
+}
+
+// Fires immediately when new appointments are added during a sync run.
+// Called from syncCalendarIncremental_ and syncCalendarToSheets only when hasChanges is true.
+function sendSyncNotification_(ctx, newEventIds) {
+  try {
+    if (!newEventIds || newEventIds.size === 0) return;
+    const apptSheet   = ctx.appointmentsSheet;
+    const apptLastRow = apptSheet.getLastRow();
+    if (apptLastRow < DATA_ROW) return;
+
+    // Read Appointments B-N (13 cols)
+    const apptData = apptSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 13).getValues();
+
+    // Build client lookup: ClientID → reliability data
+    const clientsSheet  = ctx.clientsSheet;
+    const clientLastRow = clientsSheet.getLastRow();
+    const clientMap     = new Map();
+    if (clientLastRow >= DATA_ROW) {
+      // 16 cols B-Q: index 5=G=NoShow, 6=H=Late, 12=N=ConsecutivePaid, 14=P=DoNotCut, 15=Q=ClientID
+      const cd = clientsSheet.getRange(DATA_ROW, 2, clientLastRow - 2, 16).getValues();
+      for (const r of cd) {
+        const cid = r[15];
+        if (!cid) continue;
+        clientMap.set(String(cid), { noShow: r[5], late: r[6], doNotCut: r[14], consecutivePaid: r[12] });
+      }
+    }
+
+    const lines = ["✂️ <b>New Appointments</b>"];
+    const tz    = Session.getScriptTimeZone();
+
+    for (const row of apptData) {
+      const eventId = row[12]; // index 12 = col N = EventID
+      if (!eventId || !newEventIds.has(String(eventId))) continue;
+
+      // Name: col D formula result (row[2]) → fallback to CachedName col L (row[10])
+      const name     = String(row[2] || row[10] || "Unknown");
+      const service  = String(row[9]  || "Haircut"); // col K (index 9)
+      const clientId = String(row[11] || "");         // col M (index 11)
+      const client   = clientMap.get(clientId) || {};
+      const badge    = reliabilityBadge_(client.noShow, client.late, client.doNotCut, client.consecutivePaid);
+      const freeFlag = (Number(client.consecutivePaid) || 0) >= 5 ? " 🎁 Free eligible" : "";
+
+      let dateStr = "", timeStr = "";
+      try { dateStr = Utilities.formatDate(new Date(row[0]), tz, "EEE d MMM"); } catch (_) {}
+      try { timeStr = Utilities.formatDate(new Date(row[1]), tz, "HH:mm"); }    catch (_) {}
+
+      lines.push(`\n👤 ${name}\n💈 ${service}\n📅 ${dateStr} ${timeStr}\n${badge}${freeFlag}`);
+    }
+
+    if (lines.length <= 1) return; // no matching rows found after sort
+    sendTelegramMessage_(lines.join("\n"));
+    Logger.log("sendSyncNotification_: sent for " + (lines.length - 1) + " appointments");
+  } catch (e) {
+    Logger.log("sendSyncNotification_ error: " + e.message);
+  }
+}
+
+// Daily 9 PM summary: tomorrow's schedule, today's unpaid, free-eligible clients,
+// and subscriptions expiring within 7 days.
+// Called by a time-based trigger; also run via debugTomorrow() for immediate testing.
+function sendDailyNotification() {
+  try {
+    Logger.log("sendDailyNotification started");
+    const ss           = SpreadsheetApp.getActive();
+    const apptSheet    = ss.getSheetByName(APPOINTMENTS_SHEET);
+    const clientsSheet = ss.getSheetByName(CLIENTS_SHEET);
+    const subsSheet    = ss.getSheetByName(SUBSCRIPTIONS_SHEET);
+    if (!apptSheet || !clientsSheet) return;
+
+    const tz     = Session.getScriptTimeZone();
+    const now    = new Date();
+    const tmrwS  = startOfDay_(addDays_(now, 1));
+    const tmrwE  = endOfDay_(addDays_(now, 1));
+    const todayS = startOfDay_(now);
+    const todayE = endOfDay_(now);
+
+    const apptLastRow = apptSheet.getLastRow();
+    if (apptLastRow < DATA_ROW) return;
+    const apptData = apptSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 13).getValues();
+
+    // Build client lookup map
+    const clientLastRow = clientsSheet.getLastRow();
+    const clientMap     = new Map();
+    if (clientLastRow >= DATA_ROW) {
+      const cd = clientsSheet.getRange(DATA_ROW, 2, clientLastRow - 2, 16).getValues();
+      for (const r of cd) {
+        const cid = r[15];
+        if (!cid) continue;
+        clientMap.set(String(cid), {
+          name: String(r[0]), noShow: r[5], late: r[6],
+          doNotCut: r[14], consecutivePaid: r[12]
+        });
+      }
+    }
+
+    const sections = [];
+
+    // 1. Tomorrow's appointments
+    const tmrwLines = [];
+    for (const row of apptData) {
+      if (!row[0]) continue;
+      const d = new Date(row[0]);
+      if (d < tmrwS || d > tmrwE) continue;
+      if (row[5] === "Cancelled") continue;
+      const client  = clientMap.get(String(row[11] || "")) || {};
+      const badge   = reliabilityBadge_(client.noShow, client.late, client.doNotCut, client.consecutivePaid);
+      const name    = String(row[2] || row[10] || "Unknown");
+      const service = String(row[9]  || "Haircut");
+      let timeStr   = "";
+      try { timeStr = Utilities.formatDate(new Date(row[1]), tz, "HH:mm"); } catch (_) {}
+      tmrwLines.push(`  ${timeStr} · ${name} · ${service}\n  ${badge}`);
+    }
+    const tmrwLabel = Utilities.formatDate(tmrwS, tz, "EEE d MMM");
+    sections.push(`📅 <b>Tomorrow (${tmrwLabel})</b>\n` +
+      (tmrwLines.length ? tmrwLines.join("\n\n") : "  Nothing scheduled"));
+
+    // 2. Today's unpaid
+    const unpaidLines = [];
+    for (const row of apptData) {
+      if (!row[0]) continue;
+      const d = new Date(row[0]);
+      if (d < todayS || d > todayE) continue;
+      const status = String(row[5] || "");
+      if (status === "Paid" || status === "Cancelled" || status === "No Show") continue;
+      const name    = String(row[2] || row[10] || "Unknown");
+      const service = String(row[9]  || "Haircut");
+      unpaidLines.push(`  💶 ${name} · ${service}`);
+    }
+    if (unpaidLines.length) {
+      sections.push(`⏳ <b>Unpaid today</b>\n${unpaidLines.join("\n")}`);
+    }
+
+    // 3. Free-eligible clients (ConsecutivePaid ≥ 5)
+    const freeLines = [];
+    for (const [, client] of clientMap) {
+      if ((Number(client.consecutivePaid) || 0) >= 5) {
+        freeLines.push(`  🎁 ${client.name}`);
+      }
+    }
+    if (freeLines.length) {
+      sections.push(`🎁 <b>Free cut eligible</b>\n${freeLines.join("\n")}`);
+    }
+
+    // 4. Subscriptions expiring within 7 days
+    if (subsSheet) {
+      const subsLastRow = subsSheet.getLastRow();
+      if (subsLastRow >= DATA_ROW) {
+        // Subscriptions B-J (9 cols): index 0=Name, 3=Expiry, 5=Status
+        const subsData = subsSheet.getRange(DATA_ROW, 2, subsLastRow - 2, 9).getValues();
+        const in7Days  = endOfDay_(addDays_(now, 7));
+        const expLines = [];
+        for (const row of subsData) {
+          if (String(row[5] || "") !== "Active" || !row[3]) continue;
+          const expiry = new Date(row[3]);
+          if (expiry < todayS || expiry > in7Days) continue;
+          let expiryStr = "";
+          try { expiryStr = Utilities.formatDate(expiry, tz, "EEE d MMM"); } catch (_) {}
+          expLines.push(`  🔔 ${String(row[0] || "Unknown")} · expires ${expiryStr}`);
+        }
+        if (expLines.length) {
+          sections.push(`📋 <b>Subscriptions expiring soon</b>\n${expLines.join("\n")}`);
+        }
+      }
+    }
+
+    if (!sections.length) { Logger.log("Nothing to report"); return; }
+    sendTelegramMessage_(["✂️ <b>Daily Barber Report</b>", ...sections].join("\n\n─────────────────\n\n"));
+    Logger.log("sendDailyNotification complete");
+  } catch (e) {
+    Logger.log("sendDailyNotification error: " + e.message + "\n" + e.stack);
+  }
+}
+
+// Run once from the editor to install the 9 PM daily trigger.
+function setupNotificationTrigger() {
+  removeNotificationTrigger();
+  ScriptApp.newTrigger("sendDailyNotification").timeBased().atHour(21).everyDays(1).create();
+  notify_("✅ Daily notification set for 9 PM");
+}
+
+function removeNotificationTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === "sendDailyNotification") ScriptApp.deleteTrigger(t);
+  });
+}
+
+// Run from the editor dropdown to verify Telegram credentials are working.
+function testTelegramAPI() {
+  sendTelegramMessage_("✅ Telegram API test — " + new Date().toLocaleString());
+  Logger.log("testTelegramAPI sent");
+}
+
+// Run from the editor dropdown to preview tonight's daily report immediately.
+function debugTomorrow() {
+  sendDailyNotification();
 }
 
 function nameCase_(v) {
@@ -1323,11 +1568,11 @@ function formatAppointments_(sheet, COLORS) {
 
   // A=spacer(20) B=Date(125) C=Time(125) D=Name(280) E=Price(125) F=Payment(225) G=Status(225)
   // H=Tips(125) I=Late(125) J=Notes(280) K=Service(125) L=CachedName(300) M=ClientID(125) N=EventID(300) O=spacer(20)
-  const widths = [20, 125, 125, 280, 125, 225, 225, 125, 125, 280, 125, 300, 125, 300, 20];
+  const widths = [20, 125, 125, 280, 125, 225, 225, 125, 125, 180, 125, 300, 125, 300, 20];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
-  // Hide internal columns: L=CachedName(12) M=ClientID(13) N=EventID(14)
-  sheet.hideColumns(12, 3);
+  // Hide K=Service(11) + internal columns L=CachedName(12) M=ClientID(13) N=EventID(14)
+  sheet.hideColumns(11, 4);
 
   const maxRows = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
@@ -1430,9 +1675,16 @@ function formatClients_(sheet, COLORS) {
   sheet.getRange(DATA_ROW, 6, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted); // Notes F=6
 
   const ruleDefs = [
-    { formula: `=$P${DATA_ROW}=TRUE`,              bg: COLORS.tint.red,    fg: COLORS.accent.red    }, // DoNotCut P=16
-    { formula: `=$G${DATA_ROW}+$H${DATA_ROW}>=3`, bg: COLORS.tint.orange, fg: COLORS.accent.orange }, // NoShow+Late ≥ 3
-    { formula: `=$O${DATA_ROW}=TRUE`,              bg: COLORS.tint.yellow, fg: COLORS.accent.yellow }, // VIP O=15
+    { formula: `=$P${DATA_ROW}=TRUE`,
+      bg: COLORS.tint.red,    fg: COLORS.accent.red    }, // DoNotCut P=16 — highest priority
+    { formula: `=$G${DATA_ROW}+$H${DATA_ROW}>=3`,
+      bg: COLORS.tint.orange, fg: COLORS.accent.orange }, // Unreliable: 3+ incidents
+    { formula: `=AND($G${DATA_ROW}+$H${DATA_ROW}>=1,$G${DATA_ROW}+$H${DATA_ROW}<=2)`,
+      bg: COLORS.tint.blue,   fg: COLORS.accent.blue   }, // Watch: 1-2 incidents
+    { formula: `=$O${DATA_ROW}=TRUE`,
+      bg: COLORS.tint.yellow, fg: COLORS.accent.yellow }, // VIP O=15
+    { formula: `=$N${DATA_ROW}>=5`,
+      bg: COLORS.tint.green,  fg: COLORS.accent.green  }, // Free-eligible: ConsecutivePaid ≥ 5
   ];
 
   const rules = ruleDefs.map(r =>
@@ -1529,24 +1781,7 @@ function formatSubscriptions_(sheet, COLORS) {
  */
 function formatDashboard_(sheet, COLORS) {
   if (!sheet) return;
-
-  const baseRules = applyBaseTheme_(sheet, COLORS);
-
-  const styledRows = Math.min(Math.max(sheet.getLastRow(), 1) + 5, 50);
-  const styledCols = Math.min(Math.max(sheet.getLastColumn(), 1), 15);
-
-  sheet.getRange(1, 2, styledRows, 1).setFontColor(COLORS.textMuted);
-  [3, 8, 9, 10].forEach(col => {
-    if (col <= styledCols) sheet.getRange(1, col, styledRows, 1).setFontWeight('bold').setFontColor(COLORS.text);
-  });
-  if (styledCols >= 10) sheet.getRange('J2').setFontColor(COLORS.accent.blue).setFontWeight('bold');
-
-  if (styledCols >= 3) {
-    sheet.getRange(3, 1, 1, styledCols)
-      .setBackground(COLORS.tint.blue)
-      .setFontWeight('bold');
-  }
-
-  sheet.setConditionalFormatRules(baseRules);
-  sheet.setTabColor(COLORS.accent.blue);
+  // Dashboard is manually formatted — leave all colours, borders, and fonts untouched.
+  // Only ensure rows are not frozen (user preference).
+  sheet.setFrozenRows(0);
 }
