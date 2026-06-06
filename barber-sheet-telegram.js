@@ -34,17 +34,17 @@ function sendSyncNotification_(ctx, newEventIds) {
   const clientsSheet = ctx.clientsSheet;
   const tz           = ctx.calTz;
   const lastRow      = apptSheet.getLastRow();
-  if (lastRow < 2) return;
+  if (lastRow < DATA_ROW) return;
 
-  const data      = apptSheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  const data      = apptSheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
   const clientMap = loadClientNotificationMap_(clientsSheet);
   const newAppts  = [];
 
   for (const row of data) {
-    const eventId = String(row[11] || "");
+    const eventId = String(row[12] || "");
     if (!newEventIds || !newEventIds.has(eventId)) continue;
 
-    const name    = row[2] || row[12];
+    const name    = row[2] || row[10];
     const dateVal = row[0];
     const timeVal = row[1];
     const price   = row[3];
@@ -108,9 +108,9 @@ function getTomorrowAppointments_() {
   const tomorrow = startOfDay_(addDays_(new Date(), 1));
   const tomorrowEnd = endOfDay_(addDays_(new Date(), 1));
   const lastRow = apptSheet.getLastRow();
-  if (lastRow < 2) return { appts: [], clientMap: new Map(), tomorrow };
+  if (lastRow < DATA_ROW) return { appts: [], clientMap: new Map(), tomorrow };
 
-  const data = apptSheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  const data = apptSheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
   const clientMap = loadClientNotificationMap_(clientsSheet);
 
   const appts = [];
@@ -122,7 +122,7 @@ function getTomorrowAppointments_() {
     const status = row[5];
     if (status === "Cancelled" || status === "No Show") continue;
 
-    const name = row[2] || row[12];
+    const name = row[2] || row[10];
     const lastAppt = getClientLastAppointment_(name, apptSheet);
 
     appts.push({
@@ -155,9 +155,9 @@ function getTodayUnpaid_() {
   const today = startOfDay_(new Date());
   const todayEnd = endOfDay_(new Date());
   const lastRow = apptSheet.getLastRow();
-  if (lastRow < 2) return [];
+  if (lastRow < DATA_ROW) return [];
 
-  const data = apptSheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  const data = apptSheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
   const unpaid = [];
 
   for (const row of data) {
@@ -169,7 +169,7 @@ function getTodayUnpaid_() {
     if (status !== "Not Paid") continue;
     unpaid.push({
       time: row[1],
-      name: row[2] || row[12],
+      name: row[2] || row[10],
       service: row[9],
       price: row[3]
     });
@@ -199,9 +199,9 @@ function getUnreliableAppointments_(tomorrowNames) {
   const oneDayEnd = endOfDay_(addDays_(new Date(), 1));
 
   const lastRow = apptSheet.getLastRow();
-  if (lastRow < 2) return [];
+  if (lastRow < DATA_ROW) return [];
 
-  const data = apptSheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  const data = apptSheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
   const clientMap = loadClientNotificationMap_(clientsSheet);
   const flagged = [];
   const seenNames = new Set(tomorrowNames);
@@ -218,7 +218,7 @@ function getUnreliableAppointments_(tomorrowNames) {
     const status = row[5];
     if (status === "Cancelled" || status === "No Show") continue;
 
-    const name = row[2] || row[12];
+    const name = row[2] || row[10];
 
     // DEDUP: skip if already in tomorrow's section
     if (seenNames.has(nameCase_(name))) continue;
@@ -253,7 +253,7 @@ function getUnreliableAppointments_(tomorrowNames) {
  */
 function getClientLastAppointment_(clientName, apptSheet) {
   const today = startOfDay_(new Date());
-  const data = apptSheet.getRange(2, 1, apptSheet.getLastRow() - 1, 13).getValues();
+  const data = apptSheet.getRange(DATA_ROW, 2, apptSheet.getLastRow() - 2, 13).getValues();
   const clientAppts = [];
 
   for (const row of data) {
@@ -261,7 +261,7 @@ function getClientLastAppointment_(clientName, apptSheet) {
     if (!dateVal) continue;
     const d = new Date(dateVal);
     if (d >= today) continue; // Only past appointments
-    const name = row[2] || row[12];
+    const name = row[2] || row[10];
     if (nameCase_(name) !== nameCase_(clientName)) continue;
 
     clientAppts.push({
@@ -484,9 +484,9 @@ function loadClientNotificationMap_(sheet) {
       noShow: Number(data[i][5]) || 0,
       late: Number(data[i][6]) || 0,
       notes: data[i][4] || "",
-      doNotCut: data[i][13] === true,
-      vip: data[i][15] === true,
-      consecutivePaid: Number(data[i][14]) || 0,
+      doNotCut: data[i][14] === true,
+      vip: data[i][13] === true,
+      consecutivePaid: Number(data[i][12]) || 0,
       totalVisits: Number(data[i][8]) || 0
     });
   }

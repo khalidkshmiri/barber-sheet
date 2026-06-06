@@ -194,7 +194,7 @@ function processSheetChanges(e) {
       }
     }
 
-    // 3. Client name auto-formatting (col B=2)
+    // 4. Client name auto-formatting (col B=2)
     if (sheetName === CLIENTS_SHEET && range.getColumn() === 2 && range.getRow() > HEADER_ROW) {
       const v = range.getValue();
       const fixed = nameCase_(v);
