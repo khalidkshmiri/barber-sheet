@@ -10,7 +10,7 @@ A Google Apps Script for a barber business management system. The single script 
 
 **Daily use:** The spreadsheet is used daily via the iOS Google Sheets app. Features, UI decisions, and interactions must account for a mobile-first experience.
 
-**Mobile touch targets:** Row height must be at least 44px (Apple HIG minimum). 26px is confirmed too small — checkboxes and dropdowns become impossible to tap accurately. When setting row heights in `formatSpreadsheet`, always use `setRowHeightsForced(..., 44)` or higher. Fewer visible rows at once is acceptable and preferred over cramped tap targets.
+**Mobile touch targets:** Row height must be at least 64px. 26px and 44px are both confirmed too small on iOS — checkboxes and dropdowns become impossible to tap accurately. 64px matches Airtable's "medium" row height and feels native (≈10–12 rows visible at once, which is right for a daily schedule). When setting row heights in `formatSpreadsheet`, use `setRowHeightsForced(..., 64)`. Fewer visible rows at once is acceptable and preferred over cramped tap targets. Header row should be 36px.
 
 ## Deployment
 

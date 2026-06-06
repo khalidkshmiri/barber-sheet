@@ -1209,9 +1209,13 @@ function applyBaseTheme_(sheet, COLORS) {
 
   sheet.setFrozenRows(1);
 
-  // 44px rows = Apple HIG minimum touch target; confirmed 26px is too small on iOS
+  // Header: slightly taller for breathing room
+  sheet.setRowHeight(1, 36);
+
+  // 64px data rows — matches Airtable "medium" height, feels native on iOS,
+  // ~10-12 rows visible at once which is right for a daily schedule view
   if (maxRows > 1) {
-    sheet.setRowHeightsForced(2, maxRows - 1, 44);
+    sheet.setRowHeightsForced(2, maxRows - 1, 64);
   }
 
   // Alternating row rule — must go last (lowest priority) so status colors win
