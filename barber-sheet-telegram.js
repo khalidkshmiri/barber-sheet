@@ -304,6 +304,7 @@ function getReliabilityInfo_(name, clientMap) {
   const doNotCut = info.doNotCut || false;
   const notes = info.notes || "";
   const total = noShows + lates;
+  const isNewClient = !clientMap.has(nameCase_(name)) || info.totalVisits === 0;
 
   let badge, badgeColor;
   if (doNotCut) {
@@ -315,6 +316,9 @@ function getReliabilityInfo_(name, clientMap) {
   } else if (total >= 1) {
     badge = `🟡 Watch (${noShows} NS, ${lates} late)`;
     badgeColor = "#856404";
+  } else if (isNewClient) {
+    badge = "🆕 New client";
+    badgeColor = "#0c5460";
   } else {
     badge = "✅ Reliable";
     badgeColor = "#155724";
@@ -482,7 +486,8 @@ function loadClientNotificationMap_(sheet) {
       notes: data[i][4] || "",
       doNotCut: data[i][13] === true,
       vip: data[i][15] === true,
-      consecutivePaid: Number(data[i][14]) || 0
+      consecutivePaid: Number(data[i][14]) || 0,
+      totalVisits: Number(data[i][8]) || 0
     });
   }
   return map;

@@ -60,7 +60,6 @@ function processSheetChanges(e) {
       range.setValue(false);
       SpreadsheetApp.flush();
       syncCalendarIncremental_();
-      sendTelegramSimple_("✂️ Manual sync triggered from dashboard button.");
     }
     return;
   }
