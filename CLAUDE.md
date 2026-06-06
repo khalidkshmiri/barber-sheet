@@ -10,7 +10,11 @@ A Google Apps Script for a barber business management system. The single script 
 
 **Daily use:** The spreadsheet is used daily via the iOS Google Sheets app. Features, UI decisions, and interactions must account for a mobile-first experience.
 
-**Mobile touch targets:** Row height must be at least 64px. 26px and 44px are both confirmed too small on iOS — checkboxes and dropdowns become impossible to tap accurately. 64px matches Airtable's "medium" row height and feels native (≈10–12 rows visible at once, which is right for a daily schedule). When setting row heights in `formatSpreadsheet`, use `setRowHeightsForced(..., 64)`. Fewer visible rows at once is acceptable and preferred over cramped tap targets. Header row should be 36px.
+**Mobile zoom level:** The sheet is used at **25% zoom (maximum zoom-out) on iPhone 16 Pro Max**. All sizing decisions must be based on this. At 25% zoom: visible sheet width ≈ 1720px, visible sheet height ≈ 3000px. Design target: ~10 data rows visible at once.
+
+**Row heights:** Header row = 150px. Data rows = 280px (`setRowHeightsForced(..., 280)`). 26px, 44px, and 64px are all confirmed too small at 25% zoom.
+
+**Column widths:** Visible columns in Appointments (A–J) should total ~1720px. Visible columns in Clients should also total ~1720px across the 9 non-hidden columns.
 
 ## Deployment
 

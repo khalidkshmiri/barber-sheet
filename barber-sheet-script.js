@@ -1209,13 +1209,11 @@ function applyBaseTheme_(sheet, COLORS) {
 
   sheet.setFrozenRows(1);
 
-  // Header: slightly taller for breathing room
-  sheet.setRowHeight(1, 36);
-
-  // 64px data rows — matches Airtable "medium" height, feels native on iOS,
-  // ~10-12 rows visible at once which is right for a daily schedule view
+  // Sized for 25% zoom on iPhone 16 Pro Max (max zoom-out):
+  // visible sheet height ≈ 3000px → header 150px + 10 × 280px data rows fills the screen
+  sheet.setRowHeight(1, 150);
   if (maxRows > 1) {
-    sheet.setRowHeightsForced(2, maxRows - 1, 64);
+    sheet.setRowHeightsForced(2, maxRows - 1, 280);
   }
 
   // Alternating row rule — must go last (lowest priority) so status colors win
@@ -1238,9 +1236,11 @@ function formatAppointments_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // Portrait-optimised widths: A–D (58+58+120+58=294px) fit in ~360px viewport,
-  // so Payment (E) is just at the edge — one small scroll reveals the action column.
-  const widths = [58, 58, 120, 58, 90, 90, 55, 45, 140, 100, 80, 80, 80];
+  // At 25% zoom (max zoom-out on iOS), visible width ≈ 1720px.
+  // A–J total = 1720px so all columns fill the screen without horizontal scrolling.
+  // A=Date(120) B=Time(120) C=Name(250) D=Price(120) E=Payment(180) F=Status(180)
+  // G=Tips(120) H=Late(100) I=Notes(280) J=Service(250) → total 1720
+  const widths = [120, 120, 250, 120, 180, 180, 120, 100, 280, 250, 80, 80, 80];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
   // Hide internal ID/lookup columns: K=ClientID L=EventID M=CachedName
@@ -1284,10 +1284,12 @@ function formatClients_(sheet, COLORS) {
 
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // A=Name, B=FavService, C=LastVisit, D=SocialMedia, E=Notes, F=NoShow, G=Late,
-  // H=Referral, I=TotalVisits, J=TotalTips, K=TotalSpent, L=ClientID, M=FirstVisit,
-  // N=DoNotCut, O=ConsecutivePaid, P=VIP
-  const widths = [130, 105, 90, 100, 140, 75, 65, 90, 70, 65, 75, 70, 80, 70, 80, 50];
+  // Visible columns (after hiding D, H–M): A B C E F G N O P = 9 cols
+  // At 25% zoom, total visible width ≈ 1720px → each visible col scaled accordingly.
+  // Hidden cols (D, H–M) get a placeholder width; they won't be visible anyway.
+  // A=Name(280) B=FavService(220) C=LastVisit(190) D=hidden(100) E=Notes(300)
+  // F=NoShow(160) G=Late(140) H–M=hidden(100ea) N=DoNotCut(150) O=Consec(170) P=VIP(110)
+  const widths = [280, 220, 190, 100, 300, 160, 140, 100, 100, 100, 100, 100, 100, 150, 170, 110];
   widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
 
   // Hide statistical/rarely-checked columns on mobile:
