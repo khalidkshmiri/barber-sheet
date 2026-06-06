@@ -8,7 +8,9 @@ A Google Apps Script for a barber business management system. The single script 
 
 **Owner:** Khalid — barber based in Rotterdam, Netherlands
 
-**Daily use:** The spreadsheet is used daily via the iOS Google Sheets app. Features, UI decisions, and interactions should account for a mobile-first experience.
+**Daily use:** The spreadsheet is used daily via the iOS Google Sheets app. Features, UI decisions, and interactions must account for a mobile-first experience.
+
+**Mobile touch targets:** Row height must be at least 44px (Apple HIG minimum). 26px is confirmed too small — checkboxes and dropdowns become impossible to tap accurately. When setting row heights in `formatSpreadsheet`, always use `setRowHeightsForced(..., 44)` or higher. Fewer visible rows at once is acceptable and preferred over cramped tap targets.
 
 ## Deployment
 

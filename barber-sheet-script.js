@@ -1209,9 +1209,9 @@ function applyBaseTheme_(sheet, COLORS) {
 
   sheet.setFrozenRows(1);
 
-  // Taller rows for better tap targets on mobile (26px)
+  // 44px rows = Apple HIG minimum touch target; confirmed 26px is too small on iOS
   if (maxRows > 1) {
-    sheet.setRowHeightsForced(2, maxRows - 1, 26);
+    sheet.setRowHeightsForced(2, maxRows - 1, 44);
   }
 
   // Alternating row rule — must go last (lowest priority) so status colors win
