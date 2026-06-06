@@ -1209,11 +1209,12 @@ function applyBaseTheme_(sheet, COLORS) {
 
   sheet.setFrozenRows(1);
 
-  // Sized for 25% zoom on iPhone 16 Pro Max:
-  // visible sheet height ≈ 3000px → header 120px + 10 × 240px ≈ 2520px (comfortable, slight breathing room)
-  sheet.setRowHeight(1, 120);
+  // Sized for 25% zoom on iPhone 16 Pro Max.
+  // Chrome (status bar + nav + toolbar + tab bar) eats ~180pt → usable ≈ 750pt.
+  // At 25% zoom, visible sheet height ≈ 3000px. Header 80px + 10 × 200px = 2080px.
+  sheet.setRowHeight(1, 80);
   if (maxRows > 1) {
-    sheet.setRowHeightsForced(2, maxRows - 1, 240);
+    sheet.setRowHeightsForced(2, maxRows - 1, 200);
   }
 
   // Alternating row rule — must go last (lowest priority) so status colors win
@@ -1249,24 +1250,25 @@ function formatAppointments_(sheet, COLORS) {
   const dataRows = Math.max(maxRows - 1, 1);
   const dataRange = sheet.getRange(2, 1, dataRows, 13);
 
-  // --- Typography (all sizes calibrated for 25% zoom: sheetPt × 0.25 = visible pt) ---
-  // Base: 60pt → ~15pt visible. Bold hero cols (Time, Name): 72pt → ~18pt visible.
-  // Secondary (Notes, Service): 52pt muted → ~13pt visible.
+  // --- Typography ---
+  // CLIP prevents text from wrapping inside cells (clips at cell edge instead).
+  // Fonts target ~10-12pt visible at the actual effective zoom level.
   dataRange
-    .setFontSize(60)
+    .setFontSize(26)
     .setVerticalAlignment('middle')
-    .setFontWeight('normal');
+    .setFontWeight('normal')
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
 
-  // Header: 40pt bold → ~10pt visible — enough to read column labels
-  sheet.getRange(1, 1, 1, 10).setFontSize(40);
+  // Header: legible but compact
+  sheet.getRange(1, 1, 1, 10).setFontSize(14);
 
-  // Hero columns: Time (B=2) and Name (C=3) — what you scan first
-  sheet.getRange(2, 2, dataRows, 1).setFontSize(72).setFontWeight('bold'); // Time
-  sheet.getRange(2, 3, dataRows, 1).setFontSize(72).setFontWeight('bold'); // Name
+  // Hero columns: Time (B=2) and Name (C=3) — what you scan first, bold for hierarchy
+  sheet.getRange(2, 2, dataRows, 1).setFontSize(30).setFontWeight('bold'); // Time
+  sheet.getRange(2, 3, dataRows, 1).setFontSize(30).setFontWeight('bold'); // Name
 
   // Secondary columns: muted colour, slightly smaller — supporting info
-  sheet.getRange(2, 9, dataRows, 1).setFontSize(52).setFontColor(COLORS.textMuted);  // Notes
-  sheet.getRange(2, 10, dataRows, 1).setFontSize(52).setFontColor(COLORS.textMuted); // Service
+  sheet.getRange(2, 9, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted);  // Notes
+  sheet.getRange(2, 10, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted); // Service
 
   // Horizontal alignment — centre short/numeric cols, left-align text cols
   const centred = [1, 2, 4, 5, 6, 7, 8]; // Date, Time, Price, Payment, Status, Tips, Late
@@ -1326,20 +1328,24 @@ function formatClients_(sheet, COLORS) {
   const dataRows = Math.max(maxRows - 1, 1);
   const dataRange = sheet.getRange(2, 1, dataRows, 16);
 
-  // Typography: same zoom calibration as Appointments
-  dataRange.setFontSize(60).setVerticalAlignment('middle').setFontWeight('normal');
-  sheet.getRange(1, 1, 1, 16).setFontSize(40);
+  // Typography: match Appointments sizing
+  dataRange
+    .setFontSize(26)
+    .setVerticalAlignment('middle')
+    .setFontWeight('normal')
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+  sheet.getRange(1, 1, 1, 16).setFontSize(14);
 
   // Name (A=1) is the hero column
-  sheet.getRange(2, 1, dataRows, 1).setFontSize(72).setFontWeight('bold');
+  sheet.getRange(2, 1, dataRows, 1).setFontSize(30).setFontWeight('bold');
 
-  // LastVisit (C=3), NoShow (F=6), Late (G=7): centre-align numeric/date cols
+  // Centre-align: LastVisit(3), NoShow(6), Late(7), DoNotCut(14), Consec(15), VIP(16)
   [3, 6, 7, 14, 15, 16].forEach(col =>
     sheet.getRange(2, col, dataRows, 1).setHorizontalAlignment('center')
   );
 
   // Notes (E=5): muted, slightly smaller
-  sheet.getRange(2, 5, dataRows, 1).setFontSize(52).setFontColor(COLORS.textMuted);
+  sheet.getRange(2, 5, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted);
 
   // DoNotCut has highest urgency — must be immediately visible
   const ruleDefs = [
