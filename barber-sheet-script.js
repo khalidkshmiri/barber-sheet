@@ -210,51 +210,76 @@ function processSheetChanges(e) {
  * MAIN SYNC ENGINES
  ***************/
 function syncCalendarToSheets(showNotification = true) {
-  const ctx = prepareContext_();
-  const now = new Date();
-  const startDate = startOfDay_(addDays_(now, -DAYS_BACK));
-  const endDate = endOfDay_(addDays_(now, DAYS_FORWARD));
-  const events = ctx.calendar.getEvents(startDate, endDate);
+  try {
+    Logger.log("syncCalendarToSheets started");
+    const ctx = prepareContext_();
+    const now = new Date();
+    const startDate = startOfDay_(addDays_(now, -DAYS_BACK));
+    const endDate = endOfDay_(addDays_(now, DAYS_FORWARD));
+    Logger.log(`Fetching events from ${startDate.toDateString()} to ${endDate.toDateString()}`);
+    const events = ctx.calendar.getEvents(startDate, endDate);
+    Logger.log(`Found ${events.length} calendar events`);
 
-  const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
-  updateUpcomingToNotPaid_(ctx.appointmentsSheet);
-  const apptLastRow = ctx.appointmentsSheet.getLastRow();
-  const apptData = apptLastRow >= DATA_ROW ? ctx.appointmentsSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 13).getValues() : [];
-  updateConsecutivePaidCounts_(ctx, apptData);
-  updateNoShowLateCounts_(ctx, apptData);
-  updateClientStats_(ctx, apptData);
-  sortAndHideAppointments_(ctx.appointmentsSheet);
+    const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
+    Logger.log(`Upsert done: +${counts.newCount} new, ~${counts.updatedCount} updated, -${counts.cancelledCount} cancelled`);
 
-  if (showNotification) {
-    notify_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
-    if (counts.newCount > 0 || counts.cancelledCount > 0) {
-      sendSyncNotification_(ctx, counts.newEventIds);
+    updateUpcomingToNotPaid_(ctx.appointmentsSheet);
+    const apptLastRow = ctx.appointmentsSheet.getLastRow();
+    const apptData = apptLastRow >= DATA_ROW ? ctx.appointmentsSheet.getRange(DATA_ROW, 2, apptLastRow - 2, 13).getValues() : [];
+    updateConsecutivePaidCounts_(ctx, apptData);
+    updateNoShowLateCounts_(ctx, apptData);
+    updateClientStats_(ctx, apptData);
+    sortAndHideAppointments_(ctx.appointmentsSheet);
+    Logger.log("syncCalendarToSheets complete");
+
+    if (showNotification) {
+      notify_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
+      if (counts.newCount > 0 || counts.cancelledCount > 0) {
+        sendSyncNotification_(ctx, counts.newEventIds);
+      }
     }
+  } catch (e) {
+    Logger.log("syncCalendarToSheets error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Full sync failed: " + e.message);
+    throw e;
   }
 }
 
 function syncThisYear(showNotification = true) {
-  const ctx = prepareContext_();
-  const now = new Date();
-  const year = now.getFullYear();
-  const startDate = new Date(year, 0, 1);
-  const endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+  try {
+    Logger.log("syncThisYear started");
+    const ctx = prepareContext_();
+    const now = new Date();
+    const year = now.getFullYear();
+    const startDate = new Date(year, 0, 1);
+    const endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+    Logger.log(`Fetching all events for ${year}`);
 
-  const events = ctx.calendar.getEvents(startDate, endDate);
-  const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
-  updateUpcomingToNotPaid_(ctx.appointmentsSheet);
-  const apptLastRowY = ctx.appointmentsSheet.getLastRow();
-  const apptDataY = apptLastRowY >= DATA_ROW ? ctx.appointmentsSheet.getRange(DATA_ROW, 2, apptLastRowY - 2, 13).getValues() : [];
-  updateConsecutivePaidCounts_(ctx, apptDataY);
-  updateNoShowLateCounts_(ctx, apptDataY);
-  updateClientStats_(ctx, apptDataY);
-  sortAndHideAppointments_(ctx.appointmentsSheet);
+    const events = ctx.calendar.getEvents(startDate, endDate);
+    Logger.log(`Found ${events.length} calendar events`);
 
-  if (showNotification) {
-    notify_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
-    if (counts.newCount > 0 || counts.cancelledCount > 0) {
-      sendSyncNotification_(ctx, counts.newEventIds);
+    const counts = upsertEvents_(events, { ...ctx, startDate, endDate });
+    Logger.log(`Upsert done: +${counts.newCount} new, ~${counts.updatedCount} updated, -${counts.cancelledCount} cancelled`);
+
+    updateUpcomingToNotPaid_(ctx.appointmentsSheet);
+    const apptLastRowY = ctx.appointmentsSheet.getLastRow();
+    const apptDataY = apptLastRowY >= DATA_ROW ? ctx.appointmentsSheet.getRange(DATA_ROW, 2, apptLastRowY - 2, 13).getValues() : [];
+    updateConsecutivePaidCounts_(ctx, apptDataY);
+    updateNoShowLateCounts_(ctx, apptDataY);
+    updateClientStats_(ctx, apptDataY);
+    sortAndHideAppointments_(ctx.appointmentsSheet);
+    Logger.log("syncThisYear complete");
+
+    if (showNotification) {
+      notify_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
+      if (counts.newCount > 0 || counts.cancelledCount > 0) {
+        sendSyncNotification_(ctx, counts.newEventIds);
+      }
     }
+  } catch (e) {
+    Logger.log("syncThisYear error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Year sync failed: " + e.message);
+    throw e;
   }
 }
 
@@ -639,7 +664,11 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
   const monthlyPrice = ctx.servicePrices["monthly subscription"] ?? 40;
   const name = nameCase_(clientName);
 
-  if (ctx.subsIndex.byName.has(name) || (clientId && ctx.subsIndex.byId.has(String(clientId)))) return;
+  if (ctx.subsIndex.byName.has(name) || (clientId && ctx.subsIndex.byId.has(String(clientId)))) {
+    Logger.log(`createSubscriptionEntry_: skipping ${name} — already has active subscription`);
+    return;
+  }
+  Logger.log(`createSubscriptionEntry_: creating subscription for ${name} (id=${clientId})`);
 
   const lastRow = subsSheet.getLastRow();
   if (lastRow >= DATA_ROW) {
@@ -680,36 +709,45 @@ function createSubscriptionEntry_(ctx, clientName, clientId, startDate) {
  * ONE-TIME MIGRATION
  ***************/
 function runMigration() {
-  const ss = SpreadsheetApp.getActive();
-  const sheet = ss.getSheetByName(APPOINTMENTS_SHEET);
-  const lastRow = sheet.getLastRow();
+  try {
+    Logger.log("runMigration started");
+    const ss = SpreadsheetApp.getActive();
+    const sheet = ss.getSheetByName(APPOINTMENTS_SHEET);
+    const lastRow = sheet.getLastRow();
 
-  if (lastRow < DATA_ROW) { notify_("No appointment data to migrate."); return; }
+    if (lastRow < DATA_ROW) { notify_("No appointment data to migrate."); return; }
+    Logger.log(`Migrating ${lastRow - DATA_ROW + 1} rows`);
 
-  // Ensure col L header exists (CachedName, col 12)
-  if (!sheet.getRange(HEADER_ROW, 12).getValue()) {
-    sheet.getRange(HEADER_ROW, 12).setValue("Cached Name");
+    // Ensure col L header exists (CachedName, col 12)
+    if (!sheet.getRange(HEADER_ROW, 12).getValue()) {
+      sheet.getRange(HEADER_ROW, 12).setValue("Cached Name");
+    }
+
+    // Read 13 cols from col B (B-N)
+    const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
+    const cachedNames = [];
+    const updatedFormulas = [];
+
+    for (let i = 0; i < data.length; i++) {
+      const row = i + DATA_ROW;
+      const currentName = String(data[i][2] || "");   // index 2 = col D = Name
+      const existingCache = String(data[i][10] || ""); // index 10 = col L = CachedName
+
+      cachedNames.push([existingCache || currentName]);
+      // M = ClientID, L = CachedName fallback
+      updatedFormulas.push([`=XLOOKUP(M${row}; Clients!Q:Q; Clients!B:B; L${row})`]);
+    }
+
+    sheet.getRange(DATA_ROW, 12, cachedNames.length, 1).setValues(cachedNames);   // col L = CachedName
+    sheet.getRange(DATA_ROW, 4, updatedFormulas.length, 1).setFormulas(updatedFormulas); // col D = Name formula
+
+    Logger.log(`runMigration complete: ${cachedNames.length} rows updated`);
+    notify_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide columns L, M, N (right-click → Hide column).`, 8);
+  } catch (e) {
+    Logger.log("runMigration error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Migration failed: " + e.message);
+    throw e;
   }
-
-  // Read 13 cols from col B (B-N)
-  const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
-  const cachedNames = [];
-  const updatedFormulas = [];
-
-  for (let i = 0; i < data.length; i++) {
-    const row = i + DATA_ROW;
-    const currentName = String(data[i][2] || "");   // index 2 = col D = Name
-    const existingCache = String(data[i][10] || ""); // index 10 = col L = CachedName
-
-    cachedNames.push([existingCache || currentName]);
-    // M = ClientID, L = CachedName fallback
-    updatedFormulas.push([`=XLOOKUP(M${row}; Clients!Q:Q; Clients!B:B; L${row})`]);
-  }
-
-  sheet.getRange(DATA_ROW, 12, cachedNames.length, 1).setValues(cachedNames);   // col L = CachedName
-  sheet.getRange(DATA_ROW, 4, updatedFormulas.length, 1).setFormulas(updatedFormulas); // col D = Name formula
-
-  notify_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide columns L, M, N (right-click → Hide column).`, 8);
 }
 
 /***************
@@ -838,8 +876,6 @@ function getSheetOrThrow_(ss, n) {
   if (!s) throw new Error(`Missing sheet: ${n}`);
   return s;
 }
-
-function safeAlert_(m) { try { SpreadsheetApp.getUi().alert(m); } catch (e) {} }
 
 function notify_(m, duration) {
   Logger.log(m);
@@ -1116,12 +1152,20 @@ function hm_(d, tz) { return Utilities.formatDate(d, tz, "HH:mm"); }
  * Then run: ✂️ Barber Tools → Setup Incremental Sync (5 min)
  */
 function setupIncrementalSync() {
-  removeIncrementalSync();
-  PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
-  ScriptApp.newTrigger("syncCalendarIncremental_")
-    .timeBased().everyMinutes(5).create();
-  syncCalendarIncremental_();
-  notify_("✅ Incremental sync running every 5 minutes.\n\nIf you see a Calendar error, go to:\nServices (+) in the left panel → Google Calendar API → Add", 8);
+  try {
+    Logger.log("setupIncrementalSync: removing existing triggers");
+    removeIncrementalSync();
+    PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
+    ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
+    Logger.log("setupIncrementalSync: trigger created, running initial sync");
+    syncCalendarIncremental_();
+    Logger.log("setupIncrementalSync complete");
+    notify_("✅ Incremental sync running every 5 minutes.\n\nIf you see a Calendar error, go to:\nServices (+) in the left panel → Google Calendar API → Add", 8);
+  } catch (e) {
+    Logger.log("setupIncrementalSync error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Setup incremental sync failed: " + e.message);
+    throw e;
+  }
 }
 
 function removeIncrementalSync() {
@@ -1138,30 +1182,47 @@ function removeIncrementalSync() {
  * ONE-CLICK SETUP — installs onEdit trigger + 5-min incremental sync.
  */
 function setupTriggers() {
-  ScriptApp.getProjectTriggers().forEach(t => {
-    const fn = t.getHandlerFunction();
-    if (fn === "processSheetChanges" || fn === "syncCalendarIncremental_") {
-      ScriptApp.deleteTrigger(t);
-    }
-  });
-  PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
+  try {
+    Logger.log("setupTriggers: removing existing triggers");
+    ScriptApp.getProjectTriggers().forEach(t => {
+      const fn = t.getHandlerFunction();
+      if (fn === "processSheetChanges" || fn === "syncCalendarIncremental_") {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+    PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
 
-  ScriptApp.newTrigger("processSheetChanges").forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
-  ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
+    ScriptApp.newTrigger("processSheetChanges").forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+    ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
+    Logger.log("setupTriggers: triggers created, running initial sync");
 
-  syncCalendarIncremental_();
-  notify_("✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add", 8);
+    syncCalendarIncremental_();
+    Logger.log("setupTriggers complete");
+    notify_("✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add", 8);
+  } catch (e) {
+    Logger.log("setupTriggers error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Setup triggers failed: " + e.message);
+    throw e;
+  }
 }
 
 /**
  * Installs an installable onOpen trigger so the sheet syncs automatically when opened.
  */
 function setupOnOpenSync() {
-  ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === "onOpenSync_") ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger("onOpenSync_").forSpreadsheet(SpreadsheetApp.getActive()).onOpen().create();
-  notify_("✅ Sync on sheet open enabled.");
+  try {
+    Logger.log("setupOnOpenSync: installing onOpen trigger");
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === "onOpenSync_") ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger("onOpenSync_").forSpreadsheet(SpreadsheetApp.getActive()).onOpen().create();
+    Logger.log("setupOnOpenSync complete");
+    notify_("✅ Sync on sheet open enabled.");
+  } catch (e) {
+    Logger.log("setupOnOpenSync error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Setup onOpen sync failed: " + e.message);
+    throw e;
+  }
 }
 
 function onOpenSync_() {
@@ -1398,58 +1459,69 @@ function syncCalendarIncremental_() {
  * AND another row exists for the same client at the same date+time.
  */
 function cleanupDuplicates() {
-  const ss = SpreadsheetApp.getActive();
-  const sheet = ss.getSheetByName(APPOINTMENTS_SHEET);
-  const lastRow = sheet.getLastRow();
-  if (lastRow < DATA_ROW) { notify_("No data found."); return; }
+  try {
+    Logger.log("cleanupDuplicates started");
+    const ss = SpreadsheetApp.getActive();
+    const sheet = ss.getSheetByName(APPOINTMENTS_SHEET);
+    const lastRow = sheet.getLastRow();
+    if (lastRow < DATA_ROW) { notify_("No data found."); return; }
+    Logger.log(`Scanning ${lastRow - DATA_ROW + 1} rows for duplicates`);
 
-  // Read 13 cols from col B (B-N)
-  const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
+    // Read 13 cols from col B (B-N)
+    const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
 
-  const groups = new Map();
-  for (let i = 0; i < data.length; i++) {
-    const row     = data[i];
-    const dateStr = row[0] ? new Date(row[0]).toDateString() : ""; // index 0 = col B = Date
-    const timeStr = row[1] ? String(row[1]) : "";                  // index 1 = col C = Time
-    const name    = String(row[2] || row[10] || "").trim().toLowerCase(); // col D=Name, col L=CachedName
-    const payment = String(row[4] || "").trim(); // index 4 = col F = Payment
-    const status  = String(row[5] || "").trim(); // index 5 = col G = Status
+    const groups = new Map();
+    for (let i = 0; i < data.length; i++) {
+      const row     = data[i];
+      const dateStr = row[0] ? new Date(row[0]).toDateString() : ""; // index 0 = col B = Date
+      const timeStr = row[1] ? String(row[1]) : "";                  // index 1 = col C = Time
+      const name    = String(row[2] || row[10] || "").trim().toLowerCase(); // col D=Name, col L=CachedName
+      const payment = String(row[4] || "").trim(); // index 4 = col F = Payment
+      const status  = String(row[5] || "").trim(); // index 5 = col G = Status
 
-    if (!dateStr || !name) continue;
+      if (!dateStr || !name) continue;
 
-    const key = `${dateStr}|${timeStr}|${name}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({ sheetRow: i + DATA_ROW, payment, status });
-  }
+      const key = `${dateStr}|${timeStr}|${name}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ sheetRow: i + DATA_ROW, payment, status });
+    }
 
-  const toDelete = [];
-  for (const rows of groups.values()) {
-    if (rows.length <= 1) continue;
+    const toDelete = [];
+    for (const rows of groups.values()) {
+      if (rows.length <= 1) continue;
 
-    const hasGoodRow = rows.some(r =>
-      r.payment !== "" ||
-      (r.status !== "Not Paid" && r.status !== "Upcoming")
-    );
-    if (!hasGoodRow) continue;
+      const hasGoodRow = rows.some(r =>
+        r.payment !== "" ||
+        (r.status !== "Not Paid" && r.status !== "Upcoming")
+      );
+      if (!hasGoodRow) continue;
 
-    for (const r of rows) {
-      if (r.payment === "" && (r.status === "Not Paid" || r.status === "Upcoming")) {
-        toDelete.push(r.sheetRow);
+      for (const r of rows) {
+        if (r.payment === "" && (r.status === "Not Paid" || r.status === "Upcoming")) {
+          toDelete.push(r.sheetRow);
+        }
       }
     }
-  }
 
-  if (toDelete.length === 0) {
-    notify_("✅ No duplicates found — sheet looks clean!");
-    return;
-  }
+    if (toDelete.length === 0) {
+      Logger.log("cleanupDuplicates: no duplicates found");
+      notify_("✅ No duplicates found — sheet looks clean!");
+      return;
+    }
 
-  toDelete.sort((a, b) => b - a);
-  for (const rowIdx of toDelete) {
-    sheet.deleteRow(rowIdx);
-  }
+    Logger.log(`cleanupDuplicates: deleting ${toDelete.length} rows`);
+    toDelete.sort((a, b) => b - a);
+    for (const rowIdx of toDelete) {
+      sheet.deleteRow(rowIdx);
+    }
 
-  notify_(`✅ Removed ${toDelete.length} duplicate rows.\n\nNow run: ✂️ Barber Tools → Setup Incremental Sync`);
+    Logger.log(`cleanupDuplicates complete: removed ${toDelete.length} rows`);
+    notify_(`✅ Removed ${toDelete.length} duplicate rows.\n\nNow run: ✂️ Barber Tools → Setup Incremental Sync`);
+  } catch (e) {
+    Logger.log("cleanupDuplicates error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Cleanup duplicates failed: " + e.message);
+    throw e;
+  }
 }
 
 function doGet(e) {
@@ -1496,17 +1568,24 @@ function formatSpreadsheet() {
     },
   };
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  try {
+    Logger.log('formatSpreadsheet started');
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  formatAppointments_(ss.getSheetByName('Appointments'), COLORS);
-  formatClients_(ss.getSheetByName('Clients'), COLORS);
-  formatServices_(ss.getSheetByName('Services'), COLORS);
-  formatSubscriptions_(ss.getSheetByName('Subscriptions'), COLORS);
-  formatDashboard_(ss.getSheetByName('Dashboard'), COLORS);
+    formatAppointments_(ss.getSheetByName('Appointments'), COLORS);
+    formatClients_(ss.getSheetByName('Clients'), COLORS);
+    formatServices_(ss.getSheetByName('Services'), COLORS);
+    formatSubscriptions_(ss.getSheetByName('Subscriptions'), COLORS);
+    formatDashboard_(ss.getSheetByName('Dashboard'), COLORS);
 
-  Logger.log('Flushing...');
-  SpreadsheetApp.flush();
-  Logger.log('✅ Theme applied successfully.');
+    Logger.log('Flushing...');
+    SpreadsheetApp.flush();
+    Logger.log('✅ formatSpreadsheet complete');
+  } catch (e) {
+    Logger.log('formatSpreadsheet error: ' + e.message + '\n' + e.stack);
+    sendTelegramError_('Format spreadsheet failed: ' + e.message);
+    throw e;
+  }
 }
 
 /**
