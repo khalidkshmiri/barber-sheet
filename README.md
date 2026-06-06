@@ -12,7 +12,8 @@ Built by Khalid (Rotterdam). Designed to work for anyone with a similar setup.
 - **Client records** — auto-creates client profiles, tracks visit history, reliability, VIP status, and consecutive paid streaks
 - **Telegram notifications** — daily image card (9 PM), instant text alert when new appointments are synced
 - **Subscription support** — tracks monthly subscription credits (up to 4 haircuts/month)
-- **Smart triggers** — 5-minute incremental sync, optional sync on sheet open, mobile-friendly Dashboard button
+- **Smart triggers** — 5-minute incremental sync, midnight sweep, optional sync on sheet open, mobile-friendly Dashboard button
+- **Dashboard period selector** — pick Today / This Week / This Month / Last Month / Last 3 Months / YTD / All Time to set a date range in C5–C6
 
 ---
 
@@ -29,7 +30,7 @@ Built by Khalid (Rotterdam). Designed to work for anyone with a similar setup.
 
 ### 1. Create the Google Sheet
 
-Create a new Google Spreadsheet with **four sheets** (tabs) named exactly:
+Create a new Google Spreadsheet with **five sheets** (tabs) named exactly:
 
 | Tab name | Purpose |
 |----------|---------|
@@ -37,18 +38,21 @@ Create a new Google Spreadsheet with **four sheets** (tabs) named exactly:
 | `Clients` | One row per client |
 | `Services` | Service name + price list |
 | `Subscriptions` | Monthly subscription records |
+| `Dashboard` | Sync button (C3 checkbox) and period selector (C4) |
 
-**Appointments columns (A–M):**
-`Date | Time | Name (formula) | Price | Payment | Status | Tips | Late | Notes | Service | ClientID | EventID | CachedName`
+> Row 1 and column A are spacers. Tables start at B2. Column order is hardcoded — changes require updating both the spreadsheet and the constants in the script.
 
-**Clients columns (A–P):**
-`Name | FavService | LastVisit | SocialMedia | Notes | NoShow(12m) | Late(12m) | Referral | TotalVisits | TotalTips | TotalSpent | ClientID | FirstVisit | DoNotCut | ConsecutivePaid | VIP`
+**Appointments columns (B–N):**
+`Date · Time · Name (formula) · Price · Payment · Status · Tips · Late · Notes · Service · CachedName (hidden) · ClientID (hidden) · EventID (hidden)`
 
-**Services columns:**
-`ServiceName | Price`  (e.g. `Haircut | 15`)
+**Clients columns (B–Q):**
+`Name · FavService · LastVisit · SocialMedia · Notes · NoShow(12m) · Late(12m) · Referral (hidden) · TotalVisits · TotalSpent · TotalTips · FirstVisit · ConsecutivePaid · VIP · DoNotCut · ClientID (hidden)`
 
-**Subscriptions columns (A–I):**
-`Name (formula) | Price | Notes | StartDate | Credits (formula) | Status | ExpiryDate | Notes | ClientID`
+**Services columns (B–C):**
+`ServiceName · Price`  (e.g. `Haircut · 15`)
+
+**Subscriptions columns (B–J):**
+`Name (formula) · Price · Type · Expiry · Credits (formula) · Status · Notes · StartDate · ClientID`
 
 > **Locale note:** If your Google Sheets uses Dutch/European locale, formulas use semicolons (`;`) as separators instead of commas. The XLOOKUP formulas in the script already use semicolons. If you're on English locale, change them to commas in the script (lines with `=XLOOKUP`).
 
@@ -61,11 +65,19 @@ Examples: `Ibrahim - Haircut`, `Youssef - Beard Trim`
 
 ### 3. Add the scripts
 
-The project uses two script files that share the same global scope:
+The project uses six script files that share the same global scope:
 
 1. Open your Google Sheet → **Extensions → Apps Script**
-2. Delete any existing code in the default file, paste the contents of `barber-sheet-script.js`, and save it
-3. Click **+** next to **Files**, name the new file `barber-sheet-telegram`, paste the contents of `barber-sheet-telegram.js`, and save
+2. Delete any existing code in the default file, paste the contents of `barber-sheet-script.js`, and rename it `barber-sheet-script`
+3. Click **+** next to **Files** and add each of the remaining files the same way:
+
+| File | Contents |
+|------|----------|
+| `barber-sheet-sync` | Calendar sync engines |
+| `barber-sheet-clients` | Client stat recalculation |
+| `barber-sheet-helpers` | Utility functions and index loaders |
+| `barber-sheet-telegram` | Telegram notification logic |
+| `barber-sheet-format` | Visual theme for all sheets |
 
 ### 4. Enable the Calendar API
 
@@ -91,27 +103,26 @@ If you don't want Telegram notifications, leave the Telegram properties empty �
 
 ### 6. Run the setup
 
-1. Back in your Google Sheet, reload the page
-2. Click **✂️ Barber Tools → 🛠️ Setup All Triggers**
-3. Authorize the script when prompted (Google will show a permissions screen)
+In the Apps Script editor, select `setupTriggers` from the function dropdown and click **Run**. Authorise the script when prompted.
 
 This installs:
-- An **onEdit trigger** (`processSheetChanges`) for the Dashboard button and sheet logic
-- A **5-minute trigger** (`syncCalendarIncremental_`) for automatic calendar sync
+- An **onEdit trigger** (`processSheetChanges`) — handles the Dashboard sync button and sheet logic
+- A **5-minute trigger** (`syncCalendarIncremental_`) — automatic calendar sync
+- A **daily midnight trigger** (`runMidnightSweep_`) — flips stale Upcoming rows to Not Paid
 
 ### 7. Optional: sync when the sheet opens
 
-Click **✂️ Barber Tools → 📲 Setup Sync on Sheet Open** to run an incremental sync every time you open the spreadsheet on mobile.
+Select `setupOnOpenSync` from the function dropdown and run it. This runs an incremental sync every time you open the spreadsheet.
 
 ### 8. Optional: daily image card at 9 PM
 
-Run `setupNotificationTrigger` from the Apps Script function dropdown. This schedules a daily 9 PM trigger that generates an image card of tomorrow's appointments (via Screenshotone) and sends it to Telegram as a photo.
+Select `setupNotificationTrigger` from the function dropdown and run it. This schedules a daily 9 PM trigger that generates an image card of tomorrow's appointments (via Screenshotone) and sends it to Telegram as a photo.
 
-Requires `SCREENSHOTONE_KEY` to be set in Script Properties. To test it manually before the trigger fires, run `sendDailyImageNotification_` — note it only runs if there are appointments tomorrow, unpaid from today, or unreliable upcoming clients.
+Requires `SCREENSHOTONE_KEY` to be set in Script Properties. To test it manually, select `sendDailyImageNotification_` from the dropdown and run it — note it only sends if there are appointments tomorrow, unpaid from today, unreliable upcoming clients, or DNC recommendations.
 
 ### 9. Validate your setup
 
-Click **✂️ Barber Tools → ✅ Validate Setup** to confirm the calendar, sheets, credentials, and triggers are all working.
+Select `validateSetup` from the function dropdown and run it. Check **View → Logs** for the full results — it confirms the calendar, sheets, credentials, and triggers are all working.
 
 ---
 
@@ -128,7 +139,7 @@ Create an iOS Shortcut that calls this URL when the Calendar app closes — this
 
 ## Configuration
 
-All settings are at the top of `barber-sheet-script.js`. Notification logic lives in `barber-sheet-telegram.js`.
+All settings are at the top of `barber-sheet-script.js`.
 
 ```js
 const CALENDAR_NAME = "Barber Appointments";  // must match your Google Calendar name
@@ -137,16 +148,19 @@ const CLIENTS_SHEET = "Clients";
 const SERVICES_SHEET = "Services";
 const SUBSCRIPTIONS_SHEET = "Subscriptions";
 
-const DAYS_BACK = 14;          // how far back to sync
-const DAYS_FORWARD = 14;       // how far forward to sync
+const DAYS_BACK = 14;            // how far back to sync
+const DAYS_FORWARD = 14;         // how far forward to sync
 const HIDE_OLDER_THAN_DAYS = 30; // hide (not delete) rows older than this
 
-const NOTIFICATION_MODE = "telegram"; // currently only "telegram" is supported
+const VIP_MIN_VISITS = 15;  // total paid visits to auto-earn VIP
+const VIP_MIN_SPENT  = 400; // total € spent to auto-earn VIP
 ```
+
+VIP is auto-promoted when either threshold is met and is never auto-demoted. You can also set it manually via the checkbox in the Clients sheet.
 
 ---
 
-## Payment types (col E)
+## Payment types (col F)
 
 | Value | Effect |
 |-------|--------|
@@ -155,7 +169,7 @@ const NOTIFICATION_MODE = "telegram"; // currently only "telegram" is supported
 | `Subscription` | Sets status → Paid, price → €0 |
 | `Free` | Sets status → Paid, price → €0, counts toward loyalty streak |
 
-## Status values (col F)
+## Status values (col G)
 
 | Value | Notes |
 |-------|-------|
@@ -164,7 +178,24 @@ const NOTIFICATION_MODE = "telegram"; // currently only "telegram" is supported
 | `Paid` | Payment received |
 | `No Show` | Client didn't show up; clears Late checkbox |
 | `Cancelled` | Appointment cancelled; clears Late checkbox |
-| `Free` | Legacy: also sets price → €0 (use Payment = Free instead) |
+
+---
+
+## Reliability badges
+
+Shown in Telegram notifications based on combined No Show + Late count (last 12 months):
+
+| Badge | Condition |
+|-------|-----------|
+| ⛔ DO NOT CUT | DoNotCut checkbox is set |
+| ⚠️ Unreliable | 3+ incidents |
+| 🟡 Watch | 1–2 incidents |
+| 🆕 New client | No prior visits on record |
+| ✅ Reliable | 0 incidents |
+
+Clients with 5+ consecutive paid appointments without a no-show or late are flagged **✅ ELIGIBLE FOR FREE** in notifications.
+
+The daily notification also includes a **DNC recommendations** section for clients with ≥2 no-shows or ≥2 lates who don't have the DoNotCut flag set yet. These are suggestions only — the flag is never auto-set.
 
 ---
 
@@ -175,12 +206,16 @@ Run these from the **function dropdown** in the Apps Script editor:
 | Function | What it does |
 |----------|-------------|
 | `syncThisYear` | Full sync for the entire current year |
+| `setupTriggers` | Install onEdit + 5-min sync + midnight sweep triggers |
+| `setupIncrementalSync` | Install just the 5-min incremental sync trigger |
+| `removeIncrementalSync` | Remove the 5-min sync trigger |
+| `setupMidnightSweep` | Install just the daily midnight sweep trigger |
 | `setupNotificationTrigger` | Schedule daily 9 PM Telegram notification |
 | `removeNotificationTrigger` | Remove the daily notification |
-| `setupTriggers` | Install onEdit + 5-min sync triggers |
 | `setupOnOpenSync` | Sync on every sheet open |
 | `validateSetup` | Check everything is configured correctly |
-| `runMigration` | One-time: populate CachedName column (col M) |
+| `formatSpreadsheet` | Apply the visual theme to all sheets (safe to re-run) |
+| `runMigration` | One-time: populate CachedName column (col L) |
 | `cleanupDuplicates` | Remove duplicate appointment rows |
 | `testTelegramAPI` | Test the Telegram bot connection |
 | `debugTomorrow` | Log tomorrow's appointments to the console |
