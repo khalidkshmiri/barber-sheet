@@ -8,7 +8,7 @@ function setupNotificationTrigger() {
     .everyDays(1)
     .atHour(21)
     .create();
-  safeAlert_("✅ Daily notification set for 9 PM (21:00) every evening.");
+  notify_("✅ Daily notification set for 9 PM (21:00) every evening.");
 }
 
 function removeNotificationTrigger() {
@@ -362,7 +362,7 @@ function sendTelegramNotification_() {
   const chatId = props.getProperty("TELEGRAM_CHAT_ID");
 
   if (!token || !chatId) {
-    safeAlert_("⚠️ Telegram not configured.\n\nGo to: Extensions → Apps Script → Project Settings → Script Properties");
+    Logger.log("⚠️ Telegram not configured. Go to: Extensions → Apps Script → Project Settings → Script Properties");
     return;
   }
 
