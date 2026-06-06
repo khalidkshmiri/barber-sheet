@@ -55,88 +55,93 @@ function onOpen() {
  * INSTALLABLE TRIGGER — linked to 'On edit' in Script Settings
  */
 function processSheetChanges(e) {
-  const range = e && e.range;
-  if (!range) return;
-  const sheet = range.getSheet();
-  const sheetName = sheet.getName();
+  try {
+    const range = e && e.range;
+    if (!range) return;
+    const sheet = range.getSheet();
+    const sheetName = sheet.getName();
 
-  // 1. Dashboard mobile sync button (C3)
-  if (sheetName === "Dashboard" && range.getRow() === 3 && range.getColumn() === 3) {
-    if (range.getValue() === true) {
-      range.setValue(false);
-      SpreadsheetApp.flush();
-      syncCalendarIncremental_();
+    // 1. Dashboard mobile sync button (C3)
+    if (sheetName === "Dashboard" && range.getRow() === 3 && range.getColumn() === 3) {
+      if (range.getValue() === true) {
+        range.setValue(false);
+        SpreadsheetApp.flush();
+        syncCalendarIncremental_();
+      }
+      return;
     }
-    return;
-  }
 
-  // 2. Appointments sheet logic
-  if (sheetName === APPOINTMENTS_SHEET && range.getRow() > HEADER_ROW) {
-    const row = range.getRow();
+    // 2. Appointments sheet logic
+    if (sheetName === APPOINTMENTS_SHEET && range.getRow() > HEADER_ROW) {
+      const row = range.getRow();
 
-    // A. Payment type changed (col F=6)
-    if (range.getColumn() === 6) {
-      const paymentVal = range.getValue();
-      const statusRange = sheet.getRange(row, 7); // col G = Status
-      const currentStatus = statusRange.getValue();
+      // A. Payment type changed (col F=6)
+      if (range.getColumn() === 6) {
+        const paymentVal = range.getValue();
+        const statusRange = sheet.getRange(row, 7); // col G = Status
+        const currentStatus = statusRange.getValue();
 
-      // Never override a manually set No Show or Cancelled
-      if (currentStatus !== "No Show" && currentStatus !== "Cancelled") {
-        if (paymentVal === "Cash" || paymentVal === "Tikkie" || paymentVal === "Subscription" || paymentVal === "Free") {
-          statusRange.setValue("Paid");
-        } else if (paymentVal === "" && currentStatus === "Paid") {
-          const dateVal = sheet.getRange(row, 2).getValue(); // col B = Date
-          const isUpcoming = dateVal && new Date(dateVal) >= startOfDay_(new Date());
-          statusRange.setValue(isUpcoming ? "Upcoming" : "Not Paid");
+        // Never override a manually set No Show or Cancelled
+        if (currentStatus !== "No Show" && currentStatus !== "Cancelled") {
+          if (paymentVal === "Cash" || paymentVal === "Tikkie" || paymentVal === "Subscription" || paymentVal === "Free") {
+            statusRange.setValue("Paid");
+          } else if (paymentVal === "" && currentStatus === "Paid") {
+            const dateVal = sheet.getRange(row, 2).getValue(); // col B = Date
+            const isUpcoming = dateVal && new Date(dateVal) >= startOfDay_(new Date());
+            statusRange.setValue(isUpcoming ? "Upcoming" : "Not Paid");
+          }
+        }
+
+        // Price automation
+        const priceRange = sheet.getRange(row, 5); // col E = Price
+        const currentPrice = priceRange.getValue();
+        const serviceName = String(sheet.getRange(row, 11).getValue()).toLowerCase(); // col K = Service
+
+        if (paymentVal === "Subscription" || paymentVal === "Free") {
+          priceRange.setValue(0);
+        } else if (paymentVal === "" && currentPrice === 0) {
+          priceRange.setValue(getStandardServicePrice_(serviceName));
         }
       }
 
-      // Price automation
-      const priceRange = sheet.getRange(row, 5); // col E = Price
-      const currentPrice = priceRange.getValue();
-      const serviceName = String(sheet.getRange(row, 11).getValue()).toLowerCase(); // col K = Service
+      // B. Status changed (col G=7)
+      if (range.getColumn() === 7) {
+        const statusVal = range.getValue();
 
-      if (paymentVal === "Subscription" || paymentVal === "Free") {
-        priceRange.setValue(0);
-      } else if (paymentVal === "" && currentPrice === 0) {
-        priceRange.setValue(getStandardServicePrice_(serviceName));
+        // Clear Late checkbox ONLY for No Show / Cancelled
+        if (statusVal === "No Show" || statusVal === "Cancelled") {
+          sheet.getRange(row, 9).setValue(false); // col I = Late
+        }
+
+        // If setting to Free, ensure Price = 0 (but keep Late checkbox)
+        if (statusVal.startsWith("Free")) {
+          sheet.getRange(row, 5).setValue(0); // col E = Price
+        }
+      }
+
+      // C. Recalculate all client stats immediately when any stat-affecting column changes.
+      // Covers: E=Price, F=Payment, G=Status, H=Tips, I=Late, M=ClientID
+      const col = range.getColumn();
+      if (col === 5 || col === 6 || col === 7 || col === 8 || col === 9 || col === 13) {
+        const minCtx = {
+          appointmentsSheet: sheet,
+          clientsSheet: sheet.getParent().getSheetByName(CLIENTS_SHEET)
+        };
+        updateClientStats_(minCtx);
+        updateNoShowLateCounts_(minCtx);
+        updateConsecutivePaidCounts_(minCtx);
       }
     }
 
-    // B. Status changed (col G=7)
-    if (range.getColumn() === 7) {
-      const statusVal = range.getValue();
-
-      // Clear Late checkbox ONLY for No Show / Cancelled
-      if (statusVal === "No Show" || statusVal === "Cancelled") {
-        sheet.getRange(row, 9).setValue(false); // col I = Late
-      }
-
-      // If setting to Free, ensure Price = 0 (but keep Late checkbox)
-      if (statusVal.startsWith("Free")) {
-        sheet.getRange(row, 5).setValue(0); // col E = Price
-      }
+    // 3. Client name auto-formatting (col B=2)
+    if (sheetName === CLIENTS_SHEET && range.getColumn() === 2 && range.getRow() > HEADER_ROW) {
+      const v = range.getValue();
+      const fixed = nameCase_(v);
+      if (fixed !== v) range.setValue(fixed);
     }
-
-    // C. Recalculate all client stats immediately when any stat-affecting column changes.
-    // Covers: E=Price, F=Payment, G=Status, H=Tips, I=Late, M=ClientID
-    const col = range.getColumn();
-    if (col === 5 || col === 6 || col === 7 || col === 8 || col === 9 || col === 13) {
-      const minCtx = {
-        appointmentsSheet: sheet,
-        clientsSheet: sheet.getParent().getSheetByName(CLIENTS_SHEET)
-      };
-      updateClientStats_(minCtx);
-      updateNoShowLateCounts_(minCtx);
-      updateConsecutivePaidCounts_(minCtx);
-    }
-  }
-
-  // 3. Client name auto-formatting (col B=2)
-  if (sheetName === CLIENTS_SHEET && range.getColumn() === 2 && range.getRow() > HEADER_ROW) {
-    const v = range.getValue();
-    const fixed = nameCase_(v);
-    if (fixed !== v) range.setValue(fixed);
+  } catch (err) {
+    Logger.log("processSheetChanges error: " + err.message + "\n" + err.stack);
+    sendTelegramError_("onEdit error: " + err.message);
   }
 }
 
@@ -160,7 +165,7 @@ function syncCalendarToSheets(showNotification = true) {
   sortAndHideAppointments_(ctx.appointmentsSheet);
 
   if (showNotification) {
-    safeAlert_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
+    notify_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
     if (counts.newCount > 0 || counts.cancelledCount > 0) {
       sendSyncNotification_(ctx, counts.newEventIds);
     }
@@ -185,7 +190,7 @@ function syncThisYear(showNotification = true) {
   sortAndHideAppointments_(ctx.appointmentsSheet);
 
   if (showNotification) {
-    safeAlert_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
+    notify_(`Sync Complete!\n\n+ ${counts.newCount} New\n~ ${counts.updatedCount} Updated\n- ${counts.cancelledCount} Cancelled`);
     if (counts.newCount > 0 || counts.cancelledCount > 0) {
       sendSyncNotification_(ctx, counts.newEventIds);
     }
@@ -611,7 +616,7 @@ function runMigration() {
   const sheet = ss.getSheetByName(APPOINTMENTS_SHEET);
   const lastRow = sheet.getLastRow();
 
-  if (lastRow < DATA_ROW) { safeAlert_("No appointment data to migrate."); return; }
+  if (lastRow < DATA_ROW) { notify_("No appointment data to migrate."); return; }
 
   // Ensure col L header exists (CachedName, col 12)
   if (!sheet.getRange(HEADER_ROW, 12).getValue()) {
@@ -636,7 +641,7 @@ function runMigration() {
   sheet.getRange(DATA_ROW, 12, cachedNames.length, 1).setValues(cachedNames);   // col L = CachedName
   sheet.getRange(DATA_ROW, 4, updatedFormulas.length, 1).setFormulas(updatedFormulas); // col D = Name formula
 
-  safeAlert_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide columns L, M, N (right-click → Hide column).`);
+  notify_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide columns L, M, N (right-click → Hide column).`, 8);
 }
 
 /***************
@@ -768,6 +773,26 @@ function getSheetOrThrow_(ss, n) {
 
 function safeAlert_(m) { try { SpreadsheetApp.getUi().alert(m); } catch (e) {} }
 
+function notify_(m, duration) {
+  Logger.log(m);
+  try { SpreadsheetApp.getActive().toast(m, "✂️ Barber Sheet", duration || 5); } catch (_) {}
+}
+
+function sendTelegramError_(message) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const token = props.getProperty("TELEGRAM_BOT_TOKEN");
+    const chatId = props.getProperty("TELEGRAM_CHAT_ID");
+    if (!token || !chatId) return;
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ chat_id: chatId, text: "⚠️ Barber Sheet Error\n\n" + message }),
+      muteHttpExceptions: true
+    });
+  } catch (_) {}
+}
+
 function nameCase_(v) {
   return String(v ?? "").trim().toLowerCase()
     .split(" ").map(w => w ? w[0].toUpperCase() + w.slice(1) : "").join(" ");
@@ -801,7 +826,7 @@ function setupIncrementalSync() {
   ScriptApp.newTrigger("syncCalendarIncremental_")
     .timeBased().everyMinutes(5).create();
   syncCalendarIncremental_();
-  safeAlert_("✅ Incremental sync running every 5 minutes.\n\nIf you see a Calendar error, go to:\nServices (+) in the left panel → Google Calendar API → Add");
+  notify_("✅ Incremental sync running every 5 minutes.\n\nIf you see a Calendar error, go to:\nServices (+) in the left panel → Google Calendar API → Add", 8);
 }
 
 function removeIncrementalSync() {
@@ -811,7 +836,7 @@ function removeIncrementalSync() {
     }
   });
   PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
-  safeAlert_("✅ Incremental sync stopped.");
+  notify_("✅ Incremental sync stopped.");
 }
 
 /**
@@ -830,7 +855,7 @@ function setupTriggers() {
   ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
 
   syncCalendarIncremental_();
-  safeAlert_("✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add");
+  notify_("✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add", 8);
 }
 
 /**
@@ -841,7 +866,7 @@ function setupOnOpenSync() {
     if (t.getHandlerFunction() === "onOpenSync_") ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger("onOpenSync_").forSpreadsheet(SpreadsheetApp.getActive()).onOpen().create();
-  safeAlert_("✅ Sync on sheet open enabled.");
+  notify_("✅ Sync on sheet open enabled.");
 }
 
 function onOpenSync_() {
@@ -881,8 +906,8 @@ function validateSetup() {
   const syncToken = props.getProperty("CALENDAR_SYNC_TOKEN");
   lines.push(syncToken ? "✅ Calendar sync token present" : "ℹ️ No sync token yet (runs full sync on first trigger fire)");
 
-  safeAlert_("Setup validation:\n\n" + lines.join("\n"));
-  Logger.log(lines.join("\n"));
+  Logger.log("Setup validation:\n\n" + lines.join("\n"));
+  notify_("Validation complete — see Logs (View → Logs) for full results.", 5);
 }
 
 function syncCalendarIncremental_() {
@@ -892,6 +917,7 @@ function syncCalendarIncremental_() {
     return;
   }
   try {
+    Logger.log("Incremental sync started");
     const props = PropertiesService.getScriptProperties();
     const cal   = getCalendarOrThrow_();
     const calId = cal.getId();
@@ -936,6 +962,7 @@ function syncCalendarIncremental_() {
     }
 
     // ── Nothing changed — save token and exit ────────────────────────
+    Logger.log("Items to process: " + items.length);
     if (items.length === 0) {
       if (newToken) props.setProperty("CALENDAR_SYNC_TOKEN", newToken);
       return;
@@ -1060,9 +1087,11 @@ function syncCalendarIncremental_() {
 
     if (newToken) props.setProperty("CALENDAR_SYNC_TOKEN", newToken);
     if (hasChanges) sendSyncNotification_(ctx, newEventIds);
+    Logger.log("Incremental sync complete");
 
   } catch (e) {
-    Logger.log("Incremental sync error: " + e.message);
+    Logger.log("Incremental sync error: " + e.message + "\n" + e.stack);
+    sendTelegramError_("Sync failed: " + e.message);
   } finally {
     lock.releaseLock();
   }
@@ -1077,7 +1106,7 @@ function cleanupDuplicates() {
   const ss = SpreadsheetApp.getActive();
   const sheet = ss.getSheetByName(APPOINTMENTS_SHEET);
   const lastRow = sheet.getLastRow();
-  if (lastRow < DATA_ROW) { safeAlert_("No data found."); return; }
+  if (lastRow < DATA_ROW) { notify_("No data found."); return; }
 
   // Read 13 cols from col B (B-N)
   const data = sheet.getRange(DATA_ROW, 2, lastRow - 2, 13).getValues();
@@ -1116,7 +1145,7 @@ function cleanupDuplicates() {
   }
 
   if (toDelete.length === 0) {
-    safeAlert_("✅ No duplicates found — sheet looks clean!");
+    notify_("✅ No duplicates found — sheet looks clean!");
     return;
   }
 
@@ -1125,7 +1154,7 @@ function cleanupDuplicates() {
     sheet.deleteRow(rowIdx);
   }
 
-  safeAlert_(`✅ Removed ${toDelete.length} duplicate rows.\n\nNow run: ✂️ Barber Tools → Setup Incremental Sync`);
+  notify_(`✅ Removed ${toDelete.length} duplicate rows.\n\nNow run: ✂️ Barber Tools → Setup Incremental Sync`);
 }
 
 function doGet(e) {
