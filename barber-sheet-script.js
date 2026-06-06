@@ -71,7 +71,57 @@ function processSheetChanges(e) {
       return;
     }
 
-    // 2. Appointments sheet logic
+    // 2. Dashboard period selector (C4) — sets start date (C5) and end date (C6)
+    if (sheetName === "Dashboard" && range.getRow() === 4 && range.getColumn() === 3) {
+      const period = range.getValue();
+      const now = new Date();
+      let startDate = null;
+      let endDate   = null;
+
+      if (period === "Today") {
+        startDate = startOfDay_(now);
+        endDate   = endOfDay_(now);
+
+      } else if (period === "This Week") {
+        const day = now.getDay();                        // 0=Sun … 6=Sat
+        const diffToMon = (day === 0 ? -6 : 1 - day);  // days back to Monday
+        startDate = startOfDay_(addDays_(now, diffToMon));
+        endDate   = endOfDay_(addDays_(startDate, 6));
+
+      } else if (period === "This Month") {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate   = endOfDay_(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+
+      } else if (period === "Last Month") {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate   = endOfDay_(new Date(now.getFullYear(), now.getMonth(), 0));
+
+      } else if (period === "Last 3 Months") {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+        endDate   = endOfDay_(now);
+
+      } else if (period === "YTD") {
+        startDate = new Date(now.getFullYear(), 0, 1);  // Jan 1 this year
+        endDate   = endOfDay_(now);
+
+      } else if (period === "All Time") {
+        startDate = new Date(2020, 0, 1);
+        endDate   = endOfDay_(now);
+
+      } else if (period === "Custom") {
+        sheet.getRange(5, 3).clearContent();
+        sheet.getRange(6, 3).clearContent();
+        return;
+      }
+
+      if (startDate && endDate) {
+        sheet.getRange(5, 3).setValue(startDate);
+        sheet.getRange(6, 3).setValue(endDate);
+      }
+      return;
+    }
+
+    // 3. Appointments sheet logic
     if (sheetName === APPOINTMENTS_SHEET && range.getRow() > HEADER_ROW) {
       const row = range.getRow();
 
