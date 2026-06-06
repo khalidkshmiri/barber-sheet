@@ -127,9 +127,6 @@ function processSheetChanges(e) {
       if (statusVal === "No Show" || statusVal === "Cancelled") {
         sheet.getRange(row, aC["Late"]).setValue(false);
       }
-      if (statusVal.startsWith("Free")) {
-        sheet.getRange(row, aC["Price"]).setValue(0);
-      }
     }
 
     // C. Recalculate client stats when any stat-affecting column changes
@@ -682,7 +679,7 @@ function runMigration() {
   const sheet = ss.getSheetByName(APPOINTMENTS_SHEET);
   const cSheet = ss.getSheetByName(CLIENTS_SHEET);
   const lastRow = sheet.getLastRow();
-  if (lastRow < DATA_ROW) { safeAlert_("No appointment data to migrate."); return; }
+  if (lastRow < DATA_ROW) { Logger.log("No appointment data to migrate."); return; }
 
   const ac = getSheetCols_(sheet);
   const cc = getSheetCols_(cSheet);
@@ -702,7 +699,9 @@ function runMigration() {
   sheet.getRange(DATA_ROW, ac["Cached Name"], cachedNames.length,    1).setValues(cachedNames);
   sheet.getRange(DATA_ROW, ac["Name"],       updatedFormulas.length, 1).setFormulas(updatedFormulas);
 
-  safeAlert_(`✅ Migration complete!\n${cachedNames.length} rows updated.\n\nYou can now hide the CachedName column.`);
+  const migMsg = `✅ Migration complete! ${cachedNames.length} rows updated.`;
+  Logger.log(migMsg);
+  SpreadsheetApp.getActive().toast(migMsg, "Migration", 8);
 }
 
 /***************
@@ -867,7 +866,9 @@ function setupIncrementalSync() {
   PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
   ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
   syncCalendarIncremental_();
-  safeAlert_("✅ Incremental sync running every 5 minutes.\n\nIf you see a Calendar error, go to:\nServices (+) in the left panel → Google Calendar API → Add");
+  const msg = "✅ Incremental sync running every 5 minutes.\n\nIf you see a Calendar error, go to:\nServices (+) in the left panel → Google Calendar API → Add";
+  Logger.log(msg);
+  SpreadsheetApp.getActive().toast(msg, "Setup", 10);
 }
 
 function removeIncrementalSync() {
@@ -875,7 +876,8 @@ function removeIncrementalSync() {
     if (t.getHandlerFunction() === "syncCalendarIncremental_") ScriptApp.deleteTrigger(t);
   });
   PropertiesService.getScriptProperties().deleteProperty("CALENDAR_SYNC_TOKEN");
-  safeAlert_("✅ Incremental sync stopped.");
+  Logger.log("✅ Incremental sync stopped.");
+  SpreadsheetApp.getActive().toast("✅ Incremental sync stopped.", "Setup", 5);
 }
 
 function setupTriggers() {
@@ -887,7 +889,9 @@ function setupTriggers() {
   ScriptApp.newTrigger("processSheetChanges").forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
   ScriptApp.newTrigger("syncCalendarIncremental_").timeBased().everyMinutes(5).create();
   syncCalendarIncremental_();
-  safeAlert_("✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add");
+  const msg = "✅ Triggers installed!\n\n• onEdit → processSheetChanges\n• Every 5 min → syncCalendarIncremental_\n\nIf you see a Calendar error go to:\nServices (+) → Google Calendar API → Add";
+  Logger.log(msg);
+  SpreadsheetApp.getActive().toast(msg, "Setup", 10);
 }
 
 function setupOnOpenSync() {
@@ -895,7 +899,8 @@ function setupOnOpenSync() {
     if (t.getHandlerFunction() === "onOpenSync_") ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger("onOpenSync_").forSpreadsheet(SpreadsheetApp.getActive()).onOpen().create();
-  safeAlert_("✅ Sync on sheet open enabled.");
+  Logger.log("✅ Sync on sheet open enabled.");
+  SpreadsheetApp.getActive().toast("✅ Sync on sheet open enabled.", "Setup", 5);
 }
 
 function onOpenSync_() {
@@ -905,35 +910,52 @@ function onOpenSync_() {
 function validateSetup() {
   const lines = [];
 
+  Logger.log("[validateSetup] START");
+
+  Logger.log("[validateSetup] checking calendar...");
   try {
     getCalendarOrThrow_();
     lines.push("✅ Calendar \"" + CALENDAR_NAME + "\" found");
+    Logger.log("[validateSetup] calendar OK");
   } catch (e) {
     lines.push("❌ Calendar: " + e.message);
+    Logger.log("[validateSetup] calendar ERROR: " + e.message);
   }
 
+  Logger.log("[validateSetup] checking sheets...");
   const ss = SpreadsheetApp.getActive();
   [APPOINTMENTS_SHEET, CLIENTS_SHEET, SERVICES_SHEET, SUBSCRIPTIONS_SHEET].forEach(name => {
-    lines.push(ss.getSheetByName(name) ? "✅ Sheet \"" + name + "\" found" : "❌ Sheet \"" + name + "\" MISSING");
+    const found = !!ss.getSheetByName(name);
+    lines.push(found ? "✅ Sheet \"" + name + "\" found" : "❌ Sheet \"" + name + "\" MISSING");
+    Logger.log("[validateSetup] sheet \"" + name + "\": " + (found ? "OK" : "MISSING"));
   });
 
+  Logger.log("[validateSetup] checking script properties...");
   const props  = PropertiesService.getScriptProperties();
   const token  = props.getProperty("TELEGRAM_BOT_TOKEN");
   const chatId = props.getProperty("TELEGRAM_CHAT_ID");
   lines.push(token  ? "✅ TELEGRAM_BOT_TOKEN set" : "❌ TELEGRAM_BOT_TOKEN not set");
   lines.push(chatId ? "✅ TELEGRAM_CHAT_ID set"   : "❌ TELEGRAM_CHAT_ID not set");
+  Logger.log("[validateSetup] TELEGRAM_BOT_TOKEN: " + (token ? "set" : "NOT SET"));
+  Logger.log("[validateSetup] TELEGRAM_CHAT_ID: " + (chatId ? "set" : "NOT SET"));
 
+  Logger.log("[validateSetup] checking project triggers...");
   const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
-  lines.push(triggers.includes("processSheetChanges")   ? "✅ onEdit trigger active"         : "⚠️ onEdit trigger missing — run 🛠️ Setup All Triggers");
-  lines.push(triggers.includes("syncCalendarIncremental_") ? "✅ 5-min incremental sync active" : "⚠️ 5-min sync missing — run ⚡ Setup Incremental Sync");
-  lines.push(triggers.includes("sendDailyNotification") ? "✅ Daily notification trigger active" : "⚠️ Daily notification missing — run setupNotificationTrigger()");
-  lines.push(triggers.includes("onOpenSync_")           ? "✅ onOpen sync active"             : "ℹ️ onOpen sync not set (optional — run 📲 Setup Sync on Sheet Open)");
+  Logger.log("[validateSetup] triggers found: " + JSON.stringify(triggers));
+  lines.push(triggers.includes("processSheetChanges")      ? "✅ onEdit trigger active"             : "⚠️ onEdit trigger missing — run 🛠️ Setup All Triggers");
+  lines.push(triggers.includes("syncCalendarIncremental_") ? "✅ 5-min incremental sync active"     : "⚠️ 5-min sync missing — run ⚡ Setup Incremental Sync");
+  lines.push(triggers.includes("sendDailyNotification")    ? "✅ Daily notification trigger active" : "⚠️ Daily notification missing — run setupNotificationTrigger()");
+  lines.push(triggers.includes("onOpenSync_")              ? "✅ onOpen sync active"                : "ℹ️ onOpen sync not set (optional — run 📲 Setup Sync on Sheet Open)");
 
+  Logger.log("[validateSetup] checking sync token...");
   const syncToken = props.getProperty("CALENDAR_SYNC_TOKEN");
   lines.push(syncToken ? "✅ Calendar sync token present" : "ℹ️ No sync token yet (runs full sync on first trigger fire)");
+  Logger.log("[validateSetup] sync token: " + (syncToken ? "present" : "absent"));
 
-  safeAlert_("Setup validation:\n\n" + lines.join("\n"));
-  Logger.log(lines.join("\n"));
+  Logger.log("[validateSetup] all checks done");
+  Logger.log("[validateSetup] DONE\n" + lines.join("\n"));
+  // Use toast instead of alert so it works both from the editor and the sheet menu
+  SpreadsheetApp.getActive().toast(lines.join("\n"), "Setup validation", 15);
 }
 
 function syncCalendarIncremental_() {
@@ -1074,7 +1096,8 @@ function syncCalendarIncremental_() {
         const changed     = ymd !== ymd_(oldDate, tz) ||
                             hm  !== oldTime ||
                             (item.description || "") !== String(rowVals[ac["Notes"] - 1] || "") ||
-                            serviceToWrite !== String(rowVals[ac["Service"] - 1] || "");
+                            serviceToWrite !== String(rowVals[ac["Service"] - 1] || "") ||
+                            parsed.clientName !== String(rowVals[ac["Cached Name"] - 1] || "");
         if (changed) {
           const updatedRow = rowVals.slice();
           updatedRow[ac["Date"] - 1]       = dateCell;
@@ -1125,7 +1148,7 @@ function cleanupDuplicates() {
   const ss      = SpreadsheetApp.getActive();
   const sheet   = ss.getSheetByName(APPOINTMENTS_SHEET);
   const lastRow = sheet.getLastRow();
-  if (lastRow < DATA_ROW) { safeAlert_("No data found."); return; }
+  if (lastRow < DATA_ROW) { Logger.log("No data found."); return; }
 
   const ac   = getSheetCols_(sheet);
   const data = sheet.getRange(DATA_ROW, 1, lastRow - DATA_ROW + 1, sheet.getLastColumn()).getValues();
@@ -1161,13 +1184,16 @@ function cleanupDuplicates() {
   }
 
   if (toDelete.length === 0) {
-    safeAlert_("✅ No duplicates found — sheet looks clean!");
+    Logger.log("✅ No duplicates found — sheet looks clean!");
+    SpreadsheetApp.getActive().toast("✅ No duplicates found — sheet looks clean!", "Cleanup", 5);
     return;
   }
 
   toDelete.sort((a, b) => b - a);
   for (const rowIdx of toDelete) sheet.deleteRow(rowIdx);
-  safeAlert_(`✅ Removed ${toDelete.length} duplicate rows.\n\nNow run: ✂️ Barber Tools → Setup Incremental Sync`);
+  const dupMsg = `✅ Removed ${toDelete.length} duplicate rows. Now run: ✂️ Barber Tools → Setup Incremental Sync`;
+  Logger.log(dupMsg);
+  SpreadsheetApp.getActive().toast(dupMsg, "Cleanup", 8);
 }
 
 function doGet(e) {
@@ -1180,10 +1206,6 @@ function doGet(e) {
 }
 
 // ── FORMATTING ────────────────────────────────────────────────────────────────
-// Formatting functions use hardcoded column numbers for visual layout (widths,
-// hiding, conditional format column letters). These are intentional — formatting
-// is run manually and is layout-specific. If you change the column layout,
-// re-check the numbers in formatAppointments_ and formatClients_ below.
 
 function formatSpreadsheet() {
   const COLORS = {
@@ -1263,19 +1285,29 @@ function applyBaseTheme_(sheet, COLORS) {
 function formatAppointments_(sheet, COLORS) {
   if (!sheet) return;
 
+  const cols = getSheetCols_(sheet);
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // Col A = spacer (20). Then B-K visible, L-N hidden.
-  // B=Date(140) C=Time(110) D=Name(290) E=Price(110) F=Payment(185) G=Status(155)
-  // H=Tips(110) I=Late(90) J=Notes(240) K=Service(210) → visible total ~1640px
-  const widths = [20, 140, 110, 290, 110, 185, 155, 110, 90, 240, 210, 80, 80, 80];
-  widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
+  // Column widths by header name — order-independent
+  sheet.setColumnWidth(1, 20);
+  const widthMap = {
+    'Date': 140, 'Time': 110, 'Name': 290, 'Price': 110,
+    'Payment': 185, 'Status': 155, 'Tips': 110, 'Late': 90,
+    'Notes': 240, 'Service': 210, 'ClientID': 80, 'EventID': 80, 'Cached Name': 80
+  };
+  Object.entries(widthMap).forEach(([name, w]) => {
+    if (cols[name]) sheet.setColumnWidth(cols[name], w);
+  });
 
-  sheet.hideColumns(12, 3); // L=ClientID, M=EventID, N=CachedName
+  // Hide internal columns by name
+  ['ClientID', 'EventID', 'Cached Name'].forEach(name => {
+    if (cols[name]) sheet.hideColumns(cols[name], 1);
+  });
 
   const maxRows  = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
-  const dataRange = sheet.getRange(DATA_ROW, 2, dataRows, 13); // B-N
+  const lastCol  = sheet.getLastColumn();
+  const dataRange = sheet.getRange(DATA_ROW, 2, dataRows, lastCol - 1);
 
   dataRange
     .setFontSize(26)
@@ -1283,31 +1315,37 @@ function formatAppointments_(sheet, COLORS) {
     .setFontWeight('normal')
     .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
 
-  sheet.getRange(HEADER_ROW, 2, 1, 10).setFontSize(18);
-  sheet.getRange(DATA_ROW, 3, dataRows, 1).setFontSize(30).setFontWeight('bold'); // Time C
-  sheet.getRange(DATA_ROW, 4, dataRows, 1).setFontSize(30).setFontWeight('bold').setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP); // Name D
-  sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(20); // Date B
-  sheet.getRange(DATA_ROW, 10, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted); // Notes J
-  sheet.getRange(DATA_ROW, 11, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted); // Service K
+  sheet.getRange(HEADER_ROW, 2, 1, lastCol - 1).setFontSize(18);
 
-  const centred = [2, 3, 5, 6, 7, 8, 9]; // Date, Time, Price, Payment, Status, Tips, Late
-  centred.forEach(col => sheet.getRange(DATA_ROW, col, dataRows, 1).setHorizontalAlignment('center'));
+  if (cols['Time'])    sheet.getRange(DATA_ROW, cols['Time'],    dataRows, 1).setFontSize(30).setFontWeight('bold');
+  if (cols['Name'])    sheet.getRange(DATA_ROW, cols['Name'],    dataRows, 1).setFontSize(30).setFontWeight('bold').setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  if (cols['Date'])    sheet.getRange(DATA_ROW, cols['Date'],    dataRows, 1).setFontSize(20);
+  if (cols['Notes'])   sheet.getRange(DATA_ROW, cols['Notes'],   dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted);
+  if (cols['Service']) sheet.getRange(DATA_ROW, cols['Service'], dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted);
 
+  ['Date', 'Time', 'Price', 'Payment', 'Status', 'Tips', 'Late'].forEach(name => {
+    if (cols[name]) sheet.getRange(DATA_ROW, cols[name], dataRows, 1).setHorizontalAlignment('center');
+  });
+
+  // Build $COL letter references for conditional format formulas
+  const L = name => cols[name] ? '$' + colLetter_(cols[name]) : null;
   const ruleDefs = [
-    { formula: `=$I${DATA_ROW}=TRUE`,           bg: COLORS.tint.orange, fg: COLORS.accent.orange },
-    { formula: `=$G${DATA_ROW}="No Show"`,      bg: COLORS.tint.red,    fg: COLORS.accent.red    },
-    { formula: `=$G${DATA_ROW}="Cancelled"`,    bg: COLORS.bg,          fg: COLORS.textMuted     },
-    { formula: `=$F${DATA_ROW}="Subscription"`, bg: COLORS.tint.purple, fg: COLORS.accent.purple },
-    { formula: `=$G${DATA_ROW}="Paid"`,         bg: COLORS.tint.green,  fg: COLORS.accent.green  },
-    { formula: `=$G${DATA_ROW}="Upcoming"`,     bg: COLORS.tint.blue,   fg: COLORS.accent.blue   },
-    { formula: `=$G${DATA_ROW}="Not Paid"`,     bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },
+    { col: L('Late'),    formula: `=${L('Late')}${DATA_ROW}=TRUE`,              bg: COLORS.tint.orange, fg: COLORS.accent.orange },
+    { col: L('Status'),  formula: `=${L('Status')}${DATA_ROW}="No Show"`,       bg: COLORS.tint.red,    fg: COLORS.accent.red    },
+    { col: L('Status'),  formula: `=${L('Status')}${DATA_ROW}="Cancelled"`,     bg: COLORS.bg,          fg: COLORS.textMuted     },
+    { col: L('Payment'), formula: `=${L('Payment')}${DATA_ROW}="Subscription"`, bg: COLORS.tint.purple, fg: COLORS.accent.purple },
+    { col: L('Status'),  formula: `=${L('Status')}${DATA_ROW}="Paid"`,          bg: COLORS.tint.green,  fg: COLORS.accent.green  },
+    { col: L('Status'),  formula: `=${L('Status')}${DATA_ROW}="Upcoming"`,      bg: COLORS.tint.blue,   fg: COLORS.accent.blue   },
+    { col: L('Status'),  formula: `=${L('Status')}${DATA_ROW}="Not Paid"`,      bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },
   ];
 
-  const rules = ruleDefs.map(r =>
-    SpreadsheetApp.newConditionalFormatRule()
-      .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, [r.formula])
-      .setBackground(r.bg).setFontColor(r.fg).setRanges([dataRange]).build()
-  );
+  const rules = ruleDefs
+    .filter(r => r.col)
+    .map(r =>
+      SpreadsheetApp.newConditionalFormatRule()
+        .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, [r.formula])
+        .setBackground(r.bg).setFontColor(r.fg).setRanges([dataRange]).build()
+    );
 
   sheet.setConditionalFormatRules([...rules, ...baseRules]);
   sheet.setTabColor(COLORS.accent.green);
@@ -1316,43 +1354,61 @@ function formatAppointments_(sheet, COLORS) {
 function formatClients_(sheet, COLORS) {
   if (!sheet) return;
 
+  const cols = getSheetCols_(sheet);
   const baseRules = applyBaseTheme_(sheet, COLORS);
 
-  // Col A = spacer (20). Visible: B C D F G H O P Q = 9 cols ~1620px
-  const widths = [20, 280, 240, 170, 100, 310, 140, 120, 100, 100, 100, 100, 100, 100, 130, 130, 100];
-  widths.forEach((w, i) => { if (w > 0) sheet.setColumnWidth(i + 1, w); });
+  // Column widths by header name — order-independent
+  sheet.setColumnWidth(1, 20);
+  const widthMap = {
+    'Name': 280, 'Favourite Service': 240, 'Last Visit': 170, 'Social Media': 100,
+    'Notes': 310, 'No Show': 140, 'Late': 120, 'Referral': 100,
+    'Total Visits': 100, 'Total Tips': 100, 'Total Spent': 100,
+    'ClientID': 100, 'First Visit': 100, 'Do Not Cut': 130, 'Consecutive Paid': 130, 'VIP': 100
+  };
+  Object.entries(widthMap).forEach(([name, w]) => {
+    if (cols[name]) sheet.setColumnWidth(cols[name], w);
+  });
 
-  sheet.hideColumns(5, 1);  // E SocialMedia
-  sheet.hideColumns(9, 6);  // I–N
+  // Hide internal columns by name
+  ['Social Media', 'Referral', 'Total Visits', 'Total Tips', 'Total Spent', 'ClientID', 'First Visit'].forEach(name => {
+    if (cols[name]) sheet.hideColumns(cols[name], 1);
+  });
 
   const maxRows  = sheet.getMaxRows();
   const dataRows = Math.max(maxRows - DATA_ROW + 1, 1);
-  const dataRange = sheet.getRange(DATA_ROW, 2, dataRows, 16); // B-Q
+  const lastCol  = sheet.getLastColumn();
+  const dataRange = sheet.getRange(DATA_ROW, 2, dataRows, lastCol - 1);
 
   dataRange
     .setFontSize(26)
     .setVerticalAlignment('middle')
     .setFontWeight('normal')
     .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-  sheet.getRange(HEADER_ROW, 2, 1, 16).setFontSize(18);
-  sheet.getRange(DATA_ROW, 2, dataRows, 1).setFontSize(30).setFontWeight('bold').setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP); // Name B
-  [4, 7, 8, 15, 16, 17].forEach(col =>
-    sheet.getRange(DATA_ROW, col, dataRows, 1).setHorizontalAlignment('center')
-  );
-  sheet.getRange(DATA_ROW, 3, dataRows, 1).setFontSize(22); // FavService C
-  sheet.getRange(DATA_ROW, 6, dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted); // Notes F
+  sheet.getRange(HEADER_ROW, 2, 1, lastCol - 1).setFontSize(18);
 
+  if (cols['Name'])             sheet.getRange(DATA_ROW, cols['Name'],             dataRows, 1).setFontSize(30).setFontWeight('bold').setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  if (cols['Favourite Service']) sheet.getRange(DATA_ROW, cols['Favourite Service'], dataRows, 1).setFontSize(22);
+  if (cols['Notes'])            sheet.getRange(DATA_ROW, cols['Notes'],            dataRows, 1).setFontSize(22).setFontColor(COLORS.textMuted);
+
+  ['Last Visit', 'No Show', 'Late', 'Do Not Cut', 'Consecutive Paid', 'VIP'].forEach(name => {
+    if (cols[name]) sheet.getRange(DATA_ROW, cols[name], dataRows, 1).setHorizontalAlignment('center');
+  });
+
+  const L = name => cols[name] ? '$' + colLetter_(cols[name]) : null;
+  const noShowL = L('No Show'), lateL = L('Late');
   const ruleDefs = [
-    { formula: `=$O${DATA_ROW}=TRUE`,              bg: COLORS.tint.red,    fg: COLORS.accent.red    },
-    { formula: `=$G${DATA_ROW}+$H${DATA_ROW}>=3`, bg: COLORS.tint.orange, fg: COLORS.accent.orange },
-    { formula: `=$Q${DATA_ROW}=TRUE`,              bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },
+    { col: L('Do Not Cut'), formula: `=${L('Do Not Cut')}${DATA_ROW}=TRUE`,                         bg: COLORS.tint.red,    fg: COLORS.accent.red    },
+    { col: noShowL && lateL, formula: `=${noShowL}${DATA_ROW}+${lateL}${DATA_ROW}>=3`,              bg: COLORS.tint.orange, fg: COLORS.accent.orange },
+    { col: L('VIP'),        formula: `=${L('VIP')}${DATA_ROW}=TRUE`,                                bg: COLORS.tint.yellow, fg: COLORS.accent.yellow },
   ];
 
-  const rules = ruleDefs.map(r =>
-    SpreadsheetApp.newConditionalFormatRule()
-      .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, [r.formula])
-      .setBackground(r.bg).setFontColor(r.fg).setRanges([dataRange]).build()
-  );
+  const rules = ruleDefs
+    .filter(r => r.col)
+    .map(r =>
+      SpreadsheetApp.newConditionalFormatRule()
+        .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA, [r.formula])
+        .setBackground(r.bg).setFontColor(r.fg).setRanges([dataRange]).build()
+    );
 
   sheet.setConditionalFormatRules([...rules, ...baseRules]);
   sheet.setTabColor(COLORS.accent.purple);
@@ -1360,10 +1416,11 @@ function formatClients_(sheet, COLORS) {
 
 function formatServices_(sheet, COLORS) {
   if (!sheet) return;
+  const cols = getSheetCols_(sheet);
   const baseRules = applyBaseTheme_(sheet, COLORS);
   sheet.setColumnWidth(1, 20);
-  sheet.setColumnWidth(2, 150);
-  sheet.setColumnWidth(3, 90);
+  if (cols['Service']) sheet.setColumnWidth(cols['Service'], 150);
+  if (cols['Price'])   sheet.setColumnWidth(cols['Price'],   90);
   sheet.setConditionalFormatRules(baseRules);
   sheet.setTabColor(COLORS.textMuted);
 }
