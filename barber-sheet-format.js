@@ -12,6 +12,12 @@ function formatSpreadsheet() {
     bg:        '#FAF7F2',
     surface:   '#F2EDE5',
     headerBg:  '#E8DDD0',
+    header: {
+      appointments:  '#DCE8DC', // green tint, matches tab colour
+      clients:       '#E5DCE8', // purple tint, matches tab colour
+      services:      '#E8DDD0', // neutral tan, default
+      subscriptions: '#F0DCCB', // orange tint, matches tab colour
+    },
     text:      '#2C2017',
     textMuted: '#8C7B6B',
     accent: {
@@ -56,7 +62,7 @@ function formatSpreadsheet() {
  * Sets the base theme on a sheet. Tables start at B2: row 1 and col A are spacers.
  * Returns the alternating-row rule to be appended last (lowest priority) by the caller.
  */
-function applyBaseTheme_(sheet, COLORS) {
+function applyBaseTheme_(sheet, COLORS, headerBg) {
   if (!sheet) return [];
 
   Logger.log('Formatting: ' + sheet.getName());
@@ -76,7 +82,7 @@ function applyBaseTheme_(sheet, COLORS) {
 
   // Header row (row 2): styled tan background, bold text
   sheet.getRange(HEADER_ROW, 1, 1, maxCols)
-    .setBackground(COLORS.headerBg)
+    .setBackground(headerBg || COLORS.headerBg)
     .setFontColor(COLORS.text)
     .setFontWeight('bold');
 
@@ -107,7 +113,7 @@ function applyBaseTheme_(sheet, COLORS) {
 function formatAppointments_(sheet, COLORS) {
   if (!sheet) return;
 
-  const baseRules = applyBaseTheme_(sheet, COLORS);
+  const baseRules = applyBaseTheme_(sheet, COLORS, COLORS.header.appointments);
 
   // A=spacer(20) B=Date(125) C=Time(125) D=Name(280) E=Price(125) F=Payment(225) G=Status(225)
   // H=Tips(125) I=Late(125) J=Notes(280) K=Service(125) L=CachedName(300) M=ClientID(125) N=EventID(300) O=spacer(20)
@@ -181,7 +187,7 @@ function formatAppointments_(sheet, COLORS) {
 function formatClients_(sheet, COLORS) {
   if (!sheet) return;
 
-  const baseRules = applyBaseTheme_(sheet, COLORS);
+  const baseRules = applyBaseTheme_(sheet, COLORS, COLORS.header.clients);
 
   // A=spacer(20) B=Name(280) C=FavService(300) D=LastVisit(125) E=SocialMedia(300) F=Notes(280)
   // G=NoShow(125) H=Late(125) I=Referral(125) J=TotalVisits(125) K=TotalSpent(125)
@@ -249,7 +255,7 @@ function formatClients_(sheet, COLORS) {
  */
 function formatServices_(sheet, COLORS) {
   if (!sheet) return;
-  const baseRules = applyBaseTheme_(sheet, COLORS);
+  const baseRules = applyBaseTheme_(sheet, COLORS, COLORS.header.services);
 
   // A=spacer(20) B=Service(300) C=Price(300) D=spacer(20)
   [20, 300, 300, 20].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
@@ -272,7 +278,7 @@ function formatServices_(sheet, COLORS) {
  */
 function formatSubscriptions_(sheet, COLORS) {
   if (!sheet) return;
-  const baseRules = applyBaseTheme_(sheet, COLORS);
+  const baseRules = applyBaseTheme_(sheet, COLORS, COLORS.header.subscriptions);
 
   // A=spacer(20) B=Name(280) C=Price(125) D=Type(160) E=Expiry(160) F=Credits(125)
   // G=Status(230) H=Notes(280) I=StartDate(125) J=ClientID(125) K=spacer(20)
