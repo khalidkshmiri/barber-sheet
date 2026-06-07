@@ -17,6 +17,19 @@ Built by Khalid (Rotterdam). Designed to work for anyone with a similar setup.
 
 ---
 
+## Use this as a template
+
+Want your own copy to run for your own business? Click the link below — Google will prompt you to "Make a copy", which gives you your own editable spreadsheet with all the sheets, formatting, formulas, and script files already in place:
+
+**[Get your own copy](https://docs.google.com/spreadsheets/d/15zcpZkrDN9yehocQ9SpwI3mupoOaxABz1qo8TIPIGL0/copy)**
+
+The copy is a blank slate (no client data, no appointments, no notification credentials). After copying, follow the **Setup** section below to:
+- Add your own Telegram bot token & chat ID
+- Name your Google Calendar
+- Run `setupTriggers()` to install the sync/notification triggers
+
+---
+
 ## Prerequisites
 
 - A Google account with Google Sheets and Google Calendar
