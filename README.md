@@ -41,58 +41,16 @@ The copy is a blank slate (no client data, no appointments, no notification cred
 
 ## Setup
 
-### 1. Create the Google Sheet
+> Got your copy via the [template link](#use-this-as-a-template) above? It already has the right sheets, columns, and script files — skip straight to step 1 below. Building it yourself instead? See [Building from scratch](#building-from-scratch-without-the-template) further down for the sheet/column layout and how to add the scripts.
 
-Create a new Google Spreadsheet with **five sheets** (tabs) named exactly:
-
-| Tab name | Purpose |
-|----------|---------|
-| `Appointments` | One row per appointment |
-| `Clients` | One row per client |
-| `Services` | Service name + price list |
-| `Subscriptions` | Monthly subscription records |
-| `Dashboard` | Sync button (C3 checkbox) and period selector (C4) |
-
-> Row 1 and column A are spacers. Tables start at B2. Column order is hardcoded — changes require updating both the spreadsheet and the constants in the script.
-
-**Appointments columns (B–N):**
-`Date · Time · Name (formula) · Price · Payment · Status · Tips · Late · Notes · Service · CachedName (hidden) · ClientID (hidden) · EventID (hidden)`
-
-**Clients columns (B–Q):**
-`Name · FavService · LastVisit · SocialMedia · Notes · NoShow(12m) · Late(12m) · Referral (hidden) · TotalVisits · TotalSpent · TotalTips · FirstVisit · ConsecutivePaid · VIP · DoNotCut · ClientID (hidden)`
-
-**Services columns (B–C):**
-`ServiceName · Price`  (e.g. `Haircut · 15`)
-
-**Subscriptions columns (B–J):**
-`Name (formula) · Price · Type · Expiry · Credits (formula) · Status · Notes · StartDate · ClientID`
-
-> **Locale note:** If your Google Sheets uses Dutch/European locale, formulas use semicolons (`;`) as separators instead of commas. The XLOOKUP formulas in the script already use semicolons. If you're on English locale, change them to commas in the script (lines with `=XLOOKUP`).
-
-### 2. Name your Google Calendar
+### 1. Name your Google Calendar
 
 Create a Google Calendar named exactly `Barber Appointments` (or change `CALENDAR_NAME` at the top of the script).
 
 Calendar event format: `ClientName - Service`  
 Examples: `Ibrahim - Haircut`, `Youssef - Beard Trim`
 
-### 3. Add the scripts
-
-The project uses six script files that share the same global scope:
-
-1. Open your Google Sheet → **Extensions → Apps Script**
-2. Delete any existing code in the default file, paste the contents of `barber-sheet-script.js`, and rename it `barber-sheet-script`
-3. Click **+** next to **Files** and add each of the remaining files the same way:
-
-| File | Contents |
-|------|----------|
-| `barber-sheet-sync` | Calendar sync engines |
-| `barber-sheet-clients` | Client stat recalculation |
-| `barber-sheet-helpers` | Utility functions and index loaders |
-| `barber-sheet-telegram` | Telegram notification logic |
-| `barber-sheet-format` | Visual theme for all sheets |
-
-### 4. Enable the Calendar API
+### 2. Enable the Calendar API
 
 In the Apps Script editor:
 1. Click **Services** (the `+` icon in the left panel)
@@ -100,7 +58,7 @@ In the Apps Script editor:
 
 This is required for the incremental sync (5-minute trigger).
 
-### 5. Set Script Properties
+### 3. Set Script Properties
 
 In the Apps Script editor:
 1. Go to **Project Settings** (gear icon) → **Script Properties**
@@ -114,7 +72,7 @@ In the Apps Script editor:
 
 If you don't want Telegram notifications, leave the Telegram properties empty — the script will skip notifications. `SCREENSHOTONE_KEY` is only needed for the evening image card.
 
-### 6. Run the setup
+### 4. Run the setup
 
 In the Apps Script editor, select `setupTriggers` from the function dropdown and click **Run**. Authorise the script when prompted.
 
@@ -123,17 +81,17 @@ This installs:
 - A **5-minute trigger** (`syncCalendarIncremental_`) — automatic calendar sync
 - A **daily midnight trigger** (`runMidnightSweep_`) — flips stale Upcoming rows to Not Paid
 
-### 7. Optional: sync when the sheet opens
+### 5. Optional: sync when the sheet opens
 
 Select `setupOnOpenSync` from the function dropdown and run it. This runs an incremental sync every time you open the spreadsheet.
 
-### 8. Optional: daily image card at 9 PM
+### 6. Optional: daily image card at 9 PM
 
 Select `setupNotificationTrigger` from the function dropdown and run it. This schedules a daily 9 PM trigger that generates an image card of tomorrow's appointments (via Screenshotone) and sends it to Telegram as a photo.
 
 Requires `SCREENSHOTONE_KEY` to be set in Script Properties. To test it manually, select `sendDailyImageNotification_` from the dropdown and run it — note it only sends if there are appointments tomorrow, unpaid from today, unreliable upcoming clients, or DNC recommendations.
 
-### 9. Validate your setup
+### 7. Validate your setup
 
 Select `validateSetup` from the function dropdown and run it. Check **View → Logs** for the full results — it confirms the calendar, sheets, credentials, and triggers are all working.
 
@@ -170,6 +128,56 @@ const VIP_MIN_SPENT  = 400; // total € spent to auto-earn VIP
 ```
 
 VIP is auto-promoted when either threshold is met and is never auto-demoted. You can also set it manually via the checkbox in the Clients sheet.
+
+---
+
+## Building from scratch (without the template)
+
+If you'd rather build the sheet and scripts yourself instead of using the [template copy](#use-this-as-a-template), here's what to recreate.
+
+### Sheet structure
+
+Create a Google Spreadsheet with **five sheets** (tabs) named exactly:
+
+| Tab name | Purpose |
+|----------|---------|
+| `Appointments` | One row per appointment |
+| `Clients` | One row per client |
+| `Services` | Service name + price list |
+| `Subscriptions` | Monthly subscription records |
+| `Dashboard` | Sync button (C3 checkbox) and period selector (C4) |
+
+> Row 1 and column A are spacers. Tables start at B2. Column order is hardcoded — changes require updating both the spreadsheet and the constants in the script.
+
+**Appointments columns (B–N):**
+`Date · Time · Name (formula) · Price · Payment · Status · Tips · Late · Notes · Service · CachedName (hidden) · ClientID (hidden) · EventID (hidden)`
+
+**Clients columns (B–Q):**
+`Name · FavService · LastVisit · SocialMedia · Notes · NoShow(12m) · Late(12m) · Referral (hidden) · TotalVisits · TotalSpent · TotalTips · FirstVisit · ConsecutivePaid · VIP · DoNotCut · ClientID (hidden)`
+
+**Services columns (B–C):**
+`ServiceName · Price`  (e.g. `Haircut · 15`)
+
+**Subscriptions columns (B–J):**
+`Name (formula) · Price · Type · Expiry · Credits (formula) · Status · Notes · StartDate · ClientID`
+
+> **Locale note:** If your Google Sheets uses Dutch/European locale, formulas use semicolons (`;`) as separators instead of commas. The XLOOKUP formulas in the script already use semicolons. If you're on English locale, change them to commas in the script (lines with `=XLOOKUP`).
+
+### Script files
+
+The project uses six script files that share the same global scope:
+
+1. Open your Google Sheet → **Extensions → Apps Script**
+2. Delete any existing code in the default file, paste the contents of `barber-sheet-script.js`, and rename it `barber-sheet-script`
+3. Click **+** next to **Files** and add each of the remaining files the same way:
+
+| File | Contents |
+|------|----------|
+| `barber-sheet-sync` | Calendar sync engines |
+| `barber-sheet-clients` | Client stat recalculation |
+| `barber-sheet-helpers` | Utility functions and index loaders |
+| `barber-sheet-telegram` | Telegram notification logic |
+| `barber-sheet-format` | Visual theme for all sheets |
 
 ---
 
