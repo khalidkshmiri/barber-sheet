@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Google Apps Script for a barber business management system. The script is split across 6 files that run inside a Google Sheets spreadsheet and sync appointments from Google Calendar (which syncs from Apple Calendar via iCloud), manage client records, and send Telegram notifications.
 
-**Script files (each maps 1:1 to a file in the Apps Script editor — only the changed file(s) need to be re-pasted):**
+**Script files (each maps 1:1 to a file in the Apps Script editor, shown there with a `.gs` suffix — kept locally as `.js` and synced via `clasp`):**
 
 - `barber-sheet-script.js` — main/core logic
 - `barber-sheet-clients.js` — client management
@@ -27,16 +27,19 @@ A Google Apps Script for a barber business management system. The script is spli
 
 ## Deployment
 
-There are no build or test commands. Development workflow:
+There are no build or test commands. The repo is linked to the Apps Script project via `clasp` (`.clasp.json` holds the script ID; `appsscript.json` is the manifest). Development workflow:
 
 1. Edit the relevant `.js` file(s) locally (see file list above)
-2. Paste each changed file's contents into its matching file in the Apps Script editor: **Extensions → Apps Script** in the Google Sheet — only the changed file(s) need updating, not all of them
-3. To deploy as web app: **Deploy → Manage deployments → Edit → New version → Deploy**
-4. To run functions manually: select from the function dropdown in the editor and click Run
+2. Run `clasp push` to sync local files to the Apps Script project — this uploads ALL tracked files in one shot (Apps Script doesn't support partial pushes; `clasp push` always overwrites the whole remote project with the local files, so there's no need to track "which file changed")
+3. **Claude should run `clasp push` automatically after making script edits** — no need to ask Khalid to paste files manually anymore
+4. To deploy as web app: **Deploy → Manage deployments → Edit → New version → Deploy** (still manual — `clasp push` updates script content but not a versioned web app deployment)
+5. To run functions manually: select from the function dropdown in the editor and click Run, or `clasp run <functionName>` (requires the project to use OAuth scopes set up for running)
+
+`clasp open-script` opens the project in the Apps Script editor in a browser. If `clasp push` fails with an auth error, run `clasp login` again.
 
 Syntax checking: `node --check <file>.js`
 
-After making any code change, always tell Khalid which specific file(s) he needs to re-paste into the Apps Script editor.
+After making any code change, run `clasp push` to sync it to the Apps Script project — Khalid no longer needs to paste files manually.
 
 ## Google Sheet Structure
 
