@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A Google Apps Script for a barber business management system. The single script file (`barber-sheet-script.js`) runs inside a Google Sheets spreadsheet and syncs appointments from Google Calendar (which syncs from Apple Calendar via iCloud), manages client records, and sends Telegram notifications.
+A Google Apps Script for a barber business management system. The script is split across 6 files that run inside a Google Sheets spreadsheet and sync appointments from Google Calendar (which syncs from Apple Calendar via iCloud), manage client records, and send Telegram notifications.
+
+**Script files (each maps 1:1 to a file in the Apps Script editor — only the changed file(s) need to be re-pasted):**
+
+- `barber-sheet-script.js` — main/core logic
+- `barber-sheet-clients.js` — client management
+- `barber-sheet-format.js` — formatting/theming
+- `barber-sheet-helpers.js` — shared helper functions
+- `barber-sheet-sync.js` — calendar sync logic
+- `barber-sheet-telegram.js` — Telegram notifications
 
 **Owner:** Khalid — barber based in Rotterdam, Netherlands
 
@@ -20,12 +29,14 @@ A Google Apps Script for a barber business management system. The single script 
 
 There are no build or test commands. Development workflow:
 
-1. Edit `barber-sheet-script.js` locally
-2. Paste into the Apps Script editor: **Extensions → Apps Script** in the Google Sheet
+1. Edit the relevant `.js` file(s) locally (see file list above)
+2. Paste each changed file's contents into its matching file in the Apps Script editor: **Extensions → Apps Script** in the Google Sheet — only the changed file(s) need updating, not all of them
 3. To deploy as web app: **Deploy → Manage deployments → Edit → New version → Deploy**
 4. To run functions manually: select from the function dropdown in the editor and click Run
 
-Syntax checking: `node --check barber-sheet-script.js`
+Syntax checking: `node --check <file>.js`
+
+After making any code change, always tell Khalid which specific file(s) he needs to re-paste into the Apps Script editor.
 
 ## Google Sheet Structure
 
