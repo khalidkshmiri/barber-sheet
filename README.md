@@ -28,6 +28,8 @@ The copy is a blank slate (no client data, no appointments, no notification cred
 - Name your Google Calendar
 - Run `setupTriggers()` to install the sync/notification triggers
 
+> **Note:** The script files baked into the template spreadsheet may be outdated compared to this repo. After copying, replace the script files in your copy's Apps Script editor with the latest versions from this GitHub repo (see [Script files](#script-files) below) to make sure you're running the current code.
+
 ---
 
 ## Prerequisites
