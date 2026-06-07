@@ -27,7 +27,7 @@ A Google Apps Script for a barber business management system. The script is spli
 
 ## Deployment
 
-There are no build or test commands. The repo is linked to the Apps Script project via `clasp` (`.clasp.json` holds the script ID; `appsscript.json` is the manifest). Development workflow:
+There are no build or test commands. The repo is linked to the Apps Script project via `clasp` (`.clasp.json` holds the script ID; `appsscript.json` is the manifest). Script files and `appsscript.json` live together in `scripts/` (set as `rootDir` in `.clasp.json`) — **never move `appsscript.json` out of `scripts/`**: clasp only finds and pushes the manifest when it sits inside `rootDir`, so moving it elsewhere silently breaks manifest syncing (timezone, OAuth scopes, web app config, etc. would drift from production without any error). Development workflow:
 
 1. Edit the relevant `.js` file(s) locally (see file list above)
 2. Run `clasp push` to sync local files to the Apps Script project — this uploads ALL tracked files in one shot (Apps Script doesn't support partial pushes; `clasp push` always overwrites the whole remote project with the local files, so there's no need to track "which file changed")
